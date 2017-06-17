@@ -7,7 +7,7 @@ window.onload = function() {
 	resizeCanvas()
 
 	var sleep
-	$.getJSON("assets/test.json", function(json) {
+	$.getJSON("assets/sleep.json", function(json) {
 		sleep = json
 	})
 	console.log(sleep)
