@@ -1,34 +1,71 @@
 window.onload = function() {
+	//initialize the canvas and time
 	var canvas = document.getElementById("canvas"),
 		context = canvas.getContext("2d"),
-		end_ang = 0
+		time = 0
 
-	window.addEventListener('resize', resizeCanvas, false)
-	resizeCanvas()
+	//set an event handler to listen in for refreshes
+	window.addEventListener('resize', resize_canvas, false)
+	resize_canvas()
 
-	var sleep
-	$.getJSON("assets/sleep.json", function(json) {
-		sleep = json
+	//load json and call draw
+	var sleeps
+	$.getJSON("https://raw.githubusercontent.com/abphung/abphung.github.io/master/assets/sleep.json", function(json) {
+		sleeps = json
+		draw()
 	})
-	console.log(sleep)
-	
-	setInterval(function() {
-		requestAnimationFrame(draw)
-	}, 1000/60)
+
+	// setInterval(function() {
+	// 	requestAnimationFrame(draw)
+	// }, 1000/60)
+
+	function getRandomColor() {
+        var letters = '0123456789ABCDEF';
+        var color = '#';
+        for (var i = 0; i < 6; i++ ) {
+            color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
+    }
+
+	function draw_sleep(sleep, width, height, radius) {
+		var date = new Date(sleep['startTime'])
+			start_angle = Math.PI/12*date.getHours() + Math.PI/(12*60)*date.getMinutes()
+			end_angle = (start_angle + Math.PI/(12*60)*sleep['duration']/60000)%(2*Math.PI)
+
+		console.log(start_angle, end_angle)
+
+		context.lineWidth = 5
+		context.strokeStyle = getRandomColor()
+
+		context.beginPath()
+		context.arc(width/2, height/2, radius, start_angle, end_angle)
+		context.stroke()
+	}
 	
 	function draw() {
-		var width = canvas.width
-		var height = canvas.height
-		context.clearRect(0,0,600,600)
-		context.beginPath()
-		context.arc(100, 100, 20, 0, end_ang)
-		context.stroke()
-		end_ang += .1
+		//get the screen width and height
+		var width = canvas.width,
+			height = canvas.height,
+			size = Math.min(width, height)/90
+
+		try {
+			for (i = sleeps.length - 1; i > sleeps.length - 61; i -= 1) {
+				for (j = 0; j < sleeps[i].length; j += 1) {
+					draw_sleep(sleeps[i][j], width, height, (180 - i)*5)
+				}
+			}
+
+			//update the time
+			time += 1
+		}
+		catch(err) {
+		}
 	}
 
-	function resizeCanvas() {
+	function resize_canvas() {
 		canvas.width = window.innerWidth
 		canvas.height = window.innerHeight
-		draw()
+		//draw()
 	}
 }
