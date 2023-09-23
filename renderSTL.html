@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>STL Viewer</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.154.0/build/three.module.js",
+          "stl-loader": "https://unpkg.com/three@0.154.0/examples/jsm/loaders/STLLoader.js",
+          "three/addons/": "https://unpkg.com/three@0.154.0/examples/jsm/"
+        }
+      }
+    </script>
+</head>
+<body>
+    <div id="container"></div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { STLLoader } from 'stl-loader';
+        const container = document.getElementById('container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(renderer.domElement);
+
+        const loader = new STLLoader(); // Use the imported STLLoader
+        loader.load('./3DBenchy.stl', function (geometry) {
+            const material = new THREE.MeshPhongMaterial({ color: 0xAAAAAA, specular: 0x111111, shininess: 200 });
+            const mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+        });
+
+        const light = new THREE.PointLight(0xFFFFFF);
+        light.position.set(10, 10, 10);
+        scene.add(light);
+
+        camera.position.z = 5;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
