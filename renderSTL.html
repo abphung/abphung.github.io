@@ -37,9 +37,32 @@
 
         camera.position.z = 5;
 
-        function animate() {
-            requestAnimationFrame(animate);
-            renderer.render(scene, camera);
+        // function animate() {
+        //     requestAnimationFrame(animate);
+        //     renderer.render(scene, camera);
+        // }
+        function onSelectStart( event ) {
+            start_x = controller1.rotation.x;
+            start_y = controller1.rotation.y;
+            rotate_canopy = 1;
+
+        }
+
+        function animate(){
+
+            renderer.setAnimationLoop( () => {
+
+                if(rotate_canopy > 0){
+                    start_x_r = start_x - controller1.rotation.x
+                    start_y_r = start_y - controller1.rotation.y
+                    myPivot.rotation.x += start_x_r * .4;   //the object I'm rotating
+                    myPivot.rotation.y += start_y_r * .4;
+                    start_x = controller1.rotation.x
+                    start_y = controller1.rotation.y
+                }
+                renderer.render( scene, camera );
+            });
+
         }
 
         animate();
