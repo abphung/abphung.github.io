@@ -34,9 +34,11 @@
             scene.add(mesh);
         });
 
-        const light = new THREE.PointLight(0xFFFFFF);
-        light.position.set(10, 10, 10);
-        scene.add(light);
+        // const light = new THREE.PointLight(0xFFFFFF);
+        // light.position.set(10, 10, 10);
+        // scene.add(light);
+        const alight = new THREE.AmbientLight(0xf0f0f0, 1.2)
+        scene.add(alight)
 
         camera.position.z = 50;
 
