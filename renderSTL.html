@@ -7,7 +7,8 @@
         "imports": {
           "three": "https://unpkg.com/three@0.154.0/build/three.module.js",
           "stl-loader": "https://unpkg.com/three@0.154.0/examples/jsm/loaders/STLLoader.js",
-          "three/addons/": "https://unpkg.com/three@0.154.0/examples/jsm/"
+          "three/addons/": "https://unpkg.com/three@0.154.0/examples/jsm/",
+          "trackball-controls": "https://unpkg.com/three@0.154.0/examples/jsm/controls/TrackballControls.js"
         }
       }
     </script>
@@ -17,6 +18,8 @@
     <script type="module">
         import * as THREE from 'three';
         import { STLLoader } from 'stl-loader';
+        import { TrackballControls } from 'trackball-controls';
+
         const container = document.getElementById('container');
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
@@ -37,31 +40,34 @@
 
         camera.position.z = 50;
 
-        // function animate() {
-        //     requestAnimationFrame(animate);
-        //     renderer.render(scene, camera);
-        // }
-        function onSelectStart( event ) {
-            start_x = controller1.rotation.x;
-            start_y = controller1.rotation.y;
-            rotate_canopy = 1;
+        // Create a TrackballControls object
+        const controls = new THREE.TrackballControls(camera, renderer.domElement);
 
-        }
+        // Set the target of the controls (optional)
+        controls.target.set(0, 0, 0);
 
+        // Set additional options (optional)
+        controls.rotateSpeed = 1.0;
+        controls.zoomSpeed = 1.2;
+        controls.panSpeed = 0.8;
+        controls.noZoom = false;
+        controls.noPan = false;
+        controls.staticMoving = true;
+        controls.dynamicDampingFactor = 0.3;
 
-        function animate(){
-            renderer.setAnimationLoop( () => {
-                rotate_canopy = 1;
-                if(rotate_canopy > 0){
-                    start_x_r = start_x - controller1.rotation.x
-                    start_y_r = start_y - controller1.rotation.y
-                    myPivot.rotation.x += start_x_r * .4;   //the object I'm rotating
-                    myPivot.rotation.y += start_y_r * .4;
-                    start_x = controller1.rotation.x
-                    start_y = controller1.rotation.y
-                }
-                renderer.render( scene, camera );
-            });
+        // Add an event listener for window resize
+        window.addEventListener('resize', () => {
+            const newAspect = container.clientWidth / container.clientHeight;
+            camera.aspect = newAspect;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            controls.handleResize(); // Update controls
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+        controls.update(); // Update controls
         }
 
         animate();
