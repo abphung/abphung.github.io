@@ -50,7 +50,8 @@
         const alight = new THREE.AmbientLight(0xf0f0f0, 1.2)
         scene.add(alight)
 
-        camera.position.z = 50;
+        camera.position.set(100, 100, 100);
+        camera.lookAt(-100, -100, -100);
 
         // Create a TrackballControls object
         const controls = new TrackballControls(camera, renderer.domElement);
@@ -59,11 +60,11 @@
         controls.target.set(0, 0, 0);
 
         // Set additional options (optional)
-        controls.rotateSpeed = 8;
+        controls.rotateSpeed = 5;
         controls.zoomSpeed = 10;
         controls.panSpeed = 4;
         controls.noZoom = false;
-        controls.noPan = false;
+        controls.noPan = true;
         controls.staticMoving = true;
         controls.dynamicDampingFactor = 0.3;
 
