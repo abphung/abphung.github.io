@@ -14,7 +14,7 @@
     </script>
 </head>
 <body>
-    <div id="container" style="width:100%; height:100%; position:fixed; left:0;top:0;overflow:hidden;"></div>
+    <div id="container" style="width:39%; height:100%; margin:0 auto;"></div>
     <script type="module">
         import * as THREE from 'three';
         import { STLLoader } from 'stl-loader';
@@ -39,11 +39,11 @@
                 polygonOffsetUnits: 1
             } );
             var mesh = new THREE.Mesh( geometry, material );
-            scene.add( mesh )
-
-            
             var box = new THREE.Box3().setFromObject( mesh );
+            console.log(box);
             box.getSize(size);
+
+            scene.add( mesh );
 
             // wireframe
             var geo = new THREE.EdgesGeometry( mesh.geometry ); // or WireframeGeometry
