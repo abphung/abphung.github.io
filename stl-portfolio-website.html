@@ -81,6 +81,8 @@
         let scene, camera, renderer, controls;
         const loader = new STLLoader();
         const loadedModels = [];
+        let totalModelsToLoad = 0;
+        let loadedModelCount = 0;
 
         async function fetchSTLFiles() {
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
@@ -96,8 +98,6 @@
         function initScene(container) {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-            
-            // Set initial camera position farther back to accommodate larger models
             camera.position.set(0, 0, 50);
             
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -109,14 +109,12 @@
             controls.dampingFactor = 0.25;
             controls.enableZoom = true;
 
-            // Add lighting
             const ambientLight = new THREE.AmbientLight(0x404040);
             scene.add(ambientLight);
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
             directionalLight.position.set(1, 1, 1);
             scene.add(directionalLight);
 
-            // Add a grid helper for scale reference
             const gridHelper = new THREE.GridHelper(50, 50);
             scene.add(gridHelper);
 
@@ -125,38 +123,58 @@
         }
 
         function loadSTLModel(file, index) {
-            console.log(`Loading model: ${file.name}`);
-            loader.load(file.url, (geometry) => {
-                console.log(`Model loaded: ${file.name}`);
-                const material = new THREE.MeshPhongMaterial({ 
-                    color: new THREE.Color(Math.random(), Math.random(), Math.random()),
-                    specular: 0x111111, 
-                    shininess: 200 
-                });
-                const mesh = new THREE.Mesh(geometry, material);
+            console.log(`Starting to load model: ${file.name}`);
+            loader.load(
+                file.url,
+                (geometry) => {
+                    console.log(`Model loaded successfully: ${file.name}`);
+                    const material = new THREE.MeshPhongMaterial({ 
+                        color: new THREE.Color(Math.random(), Math.random(), Math.random()),
+                        specular: 0x111111, 
+                        shininess: 200 
+                    });
+                    const mesh = new THREE.Mesh(geometry, material);
 
-                // Center the model
-                geometry.computeBoundingBox();
-                const center = geometry.boundingBox.getCenter(new THREE.Vector3());
-                mesh.position.sub(center);
+                    geometry.computeBoundingBox();
+                    const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+                    mesh.position.sub(center);
 
-                // Rotate the model to make it upright
-                mesh.rotation.x = -Math.PI / 2;
+                    mesh.rotation.x = -Math.PI / 2;
 
-                // Position models in a circle
-                // const radius = 5;
-                // const theta = (index / loadedModels.length) * Math.PI * 2;
-                // mesh.position.x = radius * Math.cos(theta);
-                // mesh.position.z = radius * Math.sin(theta);
+                    scene.add(mesh);
+                    loadedModels.push(mesh);
 
-                scene.add(mesh);
-                loadedModels.push(mesh);
+                    console.log(`Model added to scene: ${file.name}`);
+                    console.log(`Total models in scene: ${loadedModels.length}`);
 
-                console.log(`Model added to scene: ${file.name}`);
-                console.log(`Total models in scene: ${loadedModels.length}`);
+                    loadedModelCount++;
+                    if (loadedModelCount === totalModelsToLoad) {
+                        positionModels();
+                        centerCameraOnModels();
+                    }
+                },
+                (xhr) => {
+                    console.log(`${file.name} ${(xhr.loaded / xhr.total * 100)}% loaded`);
+                },
+                (error) => {
+                    console.error(`Error loading ${file.name}:`, error);
+                    loadedModelCount++;
+                    if (loadedModelCount === totalModelsToLoad) {
+                        positionModels();
+                        centerCameraOnModels();
+                    }
+                }
+            );
+        }
 
-                centerCameraOnModels();
+        function positionModels() {
+            const radius = 10;
+            loadedModels.forEach((mesh, index) => {
+                const theta = (index / loadedModels.length) * Math.PI * 2;
+                mesh.position.x += radius * Math.cos(theta);
+                mesh.position.z += radius * Math.sin(theta);
             });
+            console.log('Models positioned in a circle');
         }
 
         function centerCameraOnModels() {
@@ -226,6 +244,9 @@
 
                 initScene(container);
 
+                totalModelsToLoad = files.length;
+                loadedModelCount = 0;
+
                 files.forEach((file, index) => {
                     loadSTLModel(file, index);
 
@@ -233,11 +254,10 @@
                     listItem.className = 'model-item active';
                     listItem.textContent = file.name;
                     listItem.onclick = () => {
-                        // Toggle visibility
-                        if (loadedModels[index]) {  // Check if the model exists
+                        if (loadedModels[index]) {
                             loadedModels[index].visible = !loadedModels[index].visible;
                             listItem.classList.toggle('active', loadedModels[index].visible);
-                            console.log(`Toggled visibility of ${file.name}: ${loadedModels[index].visible}, ${loadedModels}, ${index}`);
+                            console.log(`Toggled visibility of ${file.name}: ${loadedModels[index].visible}`);
                         } else {
                             console.error(`Model at index ${index} not found`);
                         }
