@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STL File Portfolio (GitHub API)</title>
+    <title>STL File Portfolio (GitHub API) with Physics</title>
     <style>
         body, html {
             margin: 0;
@@ -73,12 +73,13 @@
         import * as THREE from 'https://jspm.dev/three@0.132.2';
         import { OrbitControls } from 'https://jspm.dev/three@0.132.2/examples/jsm/controls/OrbitControls';
         import { STLLoader } from 'https://jspm.dev/three@0.132.2/examples/jsm/loaders/STLLoader';
+        import * as CANNON from 'https://jspm.dev/cannon-es@0.20.0';
 
         const owner = 'abphung';
         const repo = 'abphung.github.io';
-        const path = ''; // e.g., 'models' or leave empty for root
+        const path = '';
 
-        let scene, camera, renderer, controls;
+        let scene, camera, renderer, controls, world;
         const loader = new STLLoader();
         const loadedModels = [];
         let totalModelsToLoad = 0;
@@ -98,7 +99,7 @@
         function initScene(container) {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-            camera.position.set(0, 0, 50);
+            camera.position.set(0, 50, 50);
             
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
@@ -118,7 +119,19 @@
             const gridHelper = new THREE.GridHelper(50, 50);
             scene.add(gridHelper);
 
-            console.log('Scene initialized');
+            // Initialize physics world
+            world = new CANNON.World({
+                gravity: new CANNON.Vec3(0, -9.82, 0)
+            });
+
+            // Create a plane
+            const planeShape = new CANNON.Plane();
+            const planeBody = new CANNON.Body({ mass: 0 });
+            planeBody.addShape(planeShape);
+            planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(planeBody);
+
+            console.log('Scene and physics world initialized');
             animate();
         }
 
@@ -136,10 +149,18 @@
                     const mesh = new THREE.Mesh(geometry, material);
 
                     geometry.computeBoundingBox();
-                    const center = geometry.boundingBox.getCenter(new THREE.Vector3());
-                    mesh.position.sub(center);
+                    const size = new THREE.Vector3();
+                    geometry.boundingBox.getSize(size);
 
-                    mesh.rotation.x = -Math.PI / 2;
+                    const shape = new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2));
+                    const body = new CANNON.Body({
+                        mass: 1,
+                        shape: shape,
+                        position: new CANNON.Vec3(0, 50 + index * 10, 0)
+                    });
+
+                    world.addBody(body);
+                    mesh.userData.physicsBody = body;
 
                     scene.add(mesh);
                     loadedModels.push(mesh);
@@ -149,7 +170,6 @@
 
                     loadedModelCount++;
                     if (loadedModelCount === totalModelsToLoad) {
-                        positionModels();
                         centerCameraOnModels();
                     }
                 },
@@ -160,21 +180,10 @@
                     console.error(`Error loading ${file.name}:`, error);
                     loadedModelCount++;
                     if (loadedModelCount === totalModelsToLoad) {
-                        positionModels();
                         centerCameraOnModels();
                     }
                 }
             );
-        }
-
-        function positionModels() {
-            const radius = 10;
-            loadedModels.forEach((mesh, index) => {
-                const theta = (index / loadedModels.length) * Math.PI * 2;
-                mesh.position.x += radius * Math.cos(theta);
-                mesh.position.z += radius * Math.sin(theta);
-            });
-            console.log('Models positioned in a circle');
         }
 
         function centerCameraOnModels() {
@@ -195,7 +204,7 @@
             
             if (validModels === 0) {
                 console.error('No valid models found for camera centering');
-                camera.position.set(0, 0, 50);
+                camera.position.set(0, 50, 50);
                 controls.target.set(0, 0, 0);
             } else {
                 const center = box.getCenter(new THREE.Vector3());
@@ -204,12 +213,12 @@
                 
                 if (isNaN(center.x) || isNaN(center.y) || isNaN(center.z) || !isFinite(maxDim)) {
                     console.error('Invalid bounding box calculated. Using default values.');
-                    camera.position.set(0, 0, 50);
+                    camera.position.set(0, 50, 50);
                     controls.target.set(0, 0, 0);
                 } else {
                     const fov = camera.fov * (Math.PI / 180);
                     const cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 2.5;
-                    camera.position.set(center.x, center.y, center.z + cameraZ);
+                    camera.position.set(center.x, center.y + maxDim / 2, center.z + cameraZ);
                     controls.target.copy(center);
                 }
             }
@@ -223,6 +232,13 @@
 
         function animate() {
             requestAnimationFrame(animate);
+            world.step(1 / 60);
+            
+            for (let i = 0; i < loadedModels.length; i++) {
+                loadedModels[i].position.copy(loadedModels[i].userData.physicsBody.position);
+                loadedModels[i].quaternion.copy(loadedModels[i].userData.physicsBody.quaternion);
+            }
+
             controls.update();
             renderer.render(scene, camera);
         }
@@ -248,7 +264,7 @@
                 loadedModelCount = 0;
 
                 files.forEach((file, index) => {
-                    loadSTLModel(file, index);
+                    setTimeout(() => loadSTLModel(file, index), index * 1000);
 
                     const listItem = document.createElement('div');
                     listItem.className = 'model-item active';
