@@ -148,16 +148,34 @@
                     });
                     const mesh = new THREE.Mesh(geometry, material);
 
-                    geometry.computeBoundingBox();
-                    const size = new THREE.Vector3();
-                    geometry.boundingBox.getSize(size);
+                    // Center the geometry
+                    geometry.center();
 
-                    const shape = new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2));
+                    // Compute the bounding box
+                    geometry.computeBoundingBox();
+                    const box = new THREE.Box3().setFromObject(mesh);
+                    const size = box.getSize(new THREE.Vector3());
+
+                    // Determine the tallest dimension
+                    const tallestDimension = Math.max(size.x, size.y, size.z);
+                    const scale = 10 / tallestDimension; // Scale to make the tallest dimension 10 units
+
+                    // Scale the mesh
+                    mesh.scale.set(scale, scale, scale);
+
+                    // Rotate the mesh to stand upright (assuming Y is up)
+                    mesh.rotation.x = -Math.PI / 2;
+
+                    // Create a physics body
+                    const shape = new CANNON.Box(new CANNON.Vec3(size.x * scale / 2, size.z * scale / 2, size.y * scale / 2));
                     const body = new CANNON.Body({
                         mass: 1,
                         shape: shape,
-                        position: new CANNON.Vec3(0, 50 + index * 10, 0)
+                        position: new CANNON.Vec3(0, 50 + index * 15, 0)
                     });
+
+                    // Rotate the physics body to match the mesh
+                    body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
 
                     world.addBody(body);
                     mesh.userData.physicsBody = body;
