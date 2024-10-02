@@ -52,13 +52,16 @@
         .model-item:hover {
             background-color: #e0e0e0;
         }
+        .model-item.active {
+            background-color: #d0d0d0;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div id="header">
             <h1>STL File Portfolio</h1>
-            <select id="model-selector"></select>
         </div>
         <div id="gallery">
             <div class="stl-viewer" id="stl-viewer"></div>
@@ -75,7 +78,9 @@
         const repo = 'abphung.github.io';
         const path = ''; // e.g., 'models' or leave empty for root
 
-        let currentScene, currentCamera, currentRenderer, currentControls;
+        let scene, camera, renderer, controls;
+        const loader = new STLLoader();
+        const loadedModels = [];
 
         async function fetchSTLFiles() {
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
@@ -88,30 +93,47 @@
                        }));
         }
 
-        function createSTLViewer(container, stlFile) {
-            if (currentScene) {
-                // Clean up previous scene
-                currentScene.remove.apply(currentScene, currentScene.children);
-                currentRenderer.dispose();
-                container.removeChild(container.lastChild);
-            }
-
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
-            const renderer = new THREE.WebGLRenderer({ antialias: true });
+        function initScene(container) {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            
+            // Set initial camera position farther back to accommodate larger models
+            camera.position.set(0, 0, 50);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
             container.appendChild(renderer.domElement);
 
-            const controls = new OrbitControls(camera, renderer.domElement);
+            controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.25;
             controls.enableZoom = true;
 
-            const loader = new STLLoader();
-            loader.load(stlFile.url, (geometry) => {
-                const material = new THREE.MeshPhongMaterial({ color: 0xAAAAAA, specular: 0x111111, shininess: 200 });
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            // Add a grid helper for scale reference
+            const gridHelper = new THREE.GridHelper(50, 50);
+            scene.add(gridHelper);
+
+            console.log('Scene initialized');
+            animate();
+        }
+
+        function loadSTLModel(file, index) {
+            console.log(`Loading model: ${file.name}`);
+            loader.load(file.url, (geometry) => {
+                console.log(`Model loaded: ${file.name}`);
+                const material = new THREE.MeshPhongMaterial({ 
+                    color: new THREE.Color(Math.random(), Math.random(), Math.random()),
+                    specular: 0x111111, 
+                    shininess: 200 
+                });
                 const mesh = new THREE.Mesh(geometry, material);
-                scene.add(mesh);
 
                 // Center the model
                 geometry.computeBoundingBox();
@@ -121,77 +143,107 @@
                 // Rotate the model to make it upright
                 mesh.rotation.x = -Math.PI / 2;
 
-                // Adjust camera position
-                const boundingBox = new THREE.Box3().setFromObject(mesh);
-                const size = boundingBox.getSize(new THREE.Vector3());
-                const maxDim = Math.max(size.x, size.y, size.z);
-                camera.position.set(0, maxDim * 2, maxDim * 2);
-                camera.lookAt(0, 0, 0);
+                // Position models in a circle
+                // const radius = 5;
+                // const theta = (index / loadedModels.length) * Math.PI * 2;
+                // mesh.position.x = radius * Math.cos(theta);
+                // mesh.position.z = radius * Math.sin(theta);
 
-                // Add lighting
-                const ambientLight = new THREE.AmbientLight(0x404040);
-                scene.add(ambientLight);
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-                directionalLight.position.set(1, 1, 1);
-                scene.add(directionalLight);
+                scene.add(mesh);
+                loadedModels.push(mesh);
 
-                // Adjust controls target
-                controls.target.set(0, 0, 0);
-                controls.update();
+                console.log(`Model added to scene: ${file.name}`);
+                console.log(`Total models in scene: ${loadedModels.length}`);
+
+                centerCameraOnModels();
             });
+        }
 
-            currentScene = scene;
-            currentCamera = camera;
-            currentRenderer = renderer;
-            currentControls = controls;
-
-            function animate() {
-                requestAnimationFrame(animate);
-                controls.update();
-                renderer.render(scene, camera);
+        function centerCameraOnModels() {
+            if (loadedModels.length === 0) {
+                console.log('No models loaded yet');
+                return;
             }
-            animate();
+
+            const box = new THREE.Box3();
+            let validModels = 0;
+
+            for (const model of loadedModels) {
+                if (model && model.geometry) {
+                    box.expandByObject(model);
+                    validModels++;
+                }
+            }
+            
+            if (validModels === 0) {
+                console.error('No valid models found for camera centering');
+                camera.position.set(0, 0, 50);
+                controls.target.set(0, 0, 0);
+            } else {
+                const center = box.getCenter(new THREE.Vector3());
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                
+                if (isNaN(center.x) || isNaN(center.y) || isNaN(center.z) || !isFinite(maxDim)) {
+                    console.error('Invalid bounding box calculated. Using default values.');
+                    camera.position.set(0, 0, 50);
+                    controls.target.set(0, 0, 0);
+                } else {
+                    const fov = camera.fov * (Math.PI / 180);
+                    const cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 2.5;
+                    camera.position.set(center.x, center.y, center.z + cameraZ);
+                    controls.target.copy(center);
+                }
+            }
+
+            controls.update();
+
+            console.log('Camera centered on models');
+            console.log('Camera position:', camera.position);
+            console.log('Controls target:', controls.target);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
         }
 
         function handleResize() {
             const container = document.getElementById('stl-viewer');
-            currentCamera.aspect = container.clientWidth / container.clientHeight;
-            currentCamera.updateProjectionMatrix();
-            currentRenderer.setSize(container.clientWidth, container.clientHeight);
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
         }
 
         async function initGallery() {
             try {
                 const files = await fetchSTLFiles();
+                console.log('Fetched files:', files);
+
                 const container = document.getElementById('stl-viewer');
-                const modelSelector = document.getElementById('model-selector');
                 const modelList = document.getElementById('model-list');
 
+                initScene(container);
+
                 files.forEach((file, index) => {
-                    const option = document.createElement('option');
-                    option.value = index;
-                    option.textContent = file.name;
-                    modelSelector.appendChild(option);
+                    loadSTLModel(file, index);
 
                     const listItem = document.createElement('div');
-                    listItem.className = 'model-item';
+                    listItem.className = 'model-item active';
                     listItem.textContent = file.name;
                     listItem.onclick = () => {
-                        createSTLViewer(container, file);
-                        modelSelector.value = index;
+                        // Toggle visibility
+                        if (loadedModels[index]) {  // Check if the model exists
+                            loadedModels[index].visible = !loadedModels[index].visible;
+                            listItem.classList.toggle('active', loadedModels[index].visible);
+                            console.log(`Toggled visibility of ${file.name}: ${loadedModels[index].visible}, ${loadedModels}, ${index}`);
+                        } else {
+                            console.error(`Model at index ${index} not found`);
+                        }
                     };
                     modelList.appendChild(listItem);
                 });
-
-                modelSelector.onchange = (e) => {
-                    const selectedFile = files[e.target.value];
-                    createSTLViewer(container, selectedFile);
-                };
-
-                // Load the first STL file
-                if (files.length > 0) {
-                    createSTLViewer(container, files[0]);
-                }
 
                 window.addEventListener('resize', handleResize);
             } catch (error) {
