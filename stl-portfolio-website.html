@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STL File Portfolio (GitHub API)</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        #header {
+            background-color: #f0f0f0;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #gallery {
+            flex-grow: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        .stl-viewer {
+            flex-grow: 1;
+            position: relative;
+        }
+        #model-list {
+            width: 200px;
+            overflow-y: auto;
+            background-color: #f0f0f0;
+            padding: 10px;
+        }
+        .model-item {
+            cursor: pointer;
+            padding: 5px;
+            margin: 5px 0;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        .model-item:hover {
+            background-color: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header">
+            <h1>STL File Portfolio</h1>
+            <select id="model-selector"></select>
+        </div>
+        <div id="gallery">
+            <div class="stl-viewer" id="stl-viewer"></div>
+            <div id="model-list"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'https://jspm.dev/three@0.132.2';
+        import { OrbitControls } from 'https://jspm.dev/three@0.132.2/examples/jsm/controls/OrbitControls';
+        import { STLLoader } from 'https://jspm.dev/three@0.132.2/examples/jsm/loaders/STLLoader';
+
+        const owner = 'abphung';
+        const repo = 'abphung.github.io';
+        const path = ''; // e.g., 'models' or leave empty for root
+
+        let currentScene, currentCamera, currentRenderer, currentControls;
+
+        async function fetchSTLFiles() {
+            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+            const response = await fetch(apiUrl);
+            const data = await response.json();
+            return data.filter(file => file.name.toLowerCase().endsWith('.stl'))
+                       .map(file => ({
+                           name: file.name,
+                           url: file.download_url
+                       }));
+        }
+
+        function createSTLViewer(container, stlFile) {
+            if (currentScene) {
+                // Clean up previous scene
+                currentScene.remove.apply(currentScene, currentScene.children);
+                currentRenderer.dispose();
+                container.removeChild(container.lastChild);
+            }
+
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.25;
+            controls.enableZoom = true;
+
+            const loader = new STLLoader();
+            loader.load(stlFile.url, (geometry) => {
+                const material = new THREE.MeshPhongMaterial({ color: 0xAAAAAA, specular: 0x111111, shininess: 200 });
+                const mesh = new THREE.Mesh(geometry, material);
+                scene.add(mesh);
+
+                // Center the model
+                geometry.computeBoundingBox();
+                const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+                mesh.position.sub(center);
+
+                // Rotate the model to make it upright
+                mesh.rotation.x = -Math.PI / 2;
+
+                // Adjust camera position
+                const boundingBox = new THREE.Box3().setFromObject(mesh);
+                const size = boundingBox.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                camera.position.set(0, maxDim * 2, maxDim * 2);
+                camera.lookAt(0, 0, 0);
+
+                // Add lighting
+                const ambientLight = new THREE.AmbientLight(0x404040);
+                scene.add(ambientLight);
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+                directionalLight.position.set(1, 1, 1);
+                scene.add(directionalLight);
+
+                // Adjust controls target
+                controls.target.set(0, 0, 0);
+                controls.update();
+            });
+
+            currentScene = scene;
+            currentCamera = camera;
+            currentRenderer = renderer;
+            currentControls = controls;
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+        }
+
+        function handleResize() {
+            const container = document.getElementById('stl-viewer');
+            currentCamera.aspect = container.clientWidth / container.clientHeight;
+            currentCamera.updateProjectionMatrix();
+            currentRenderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        async function initGallery() {
+            try {
+                const files = await fetchSTLFiles();
+                const container = document.getElementById('stl-viewer');
+                const modelSelector = document.getElementById('model-selector');
+                const modelList = document.getElementById('model-list');
+
+                files.forEach((file, index) => {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.textContent = file.name;
+                    modelSelector.appendChild(option);
+
+                    const listItem = document.createElement('div');
+                    listItem.className = 'model-item';
+                    listItem.textContent = file.name;
+                    listItem.onclick = () => {
+                        createSTLViewer(container, file);
+                        modelSelector.value = index;
+                    };
+                    modelList.appendChild(listItem);
+                });
+
+                modelSelector.onchange = (e) => {
+                    const selectedFile = files[e.target.value];
+                    createSTLViewer(container, selectedFile);
+                };
+
+                // Load the first STL file
+                if (files.length > 0) {
+                    createSTLViewer(container, files[0]);
+                }
+
+                window.addEventListener('resize', handleResize);
+            } catch (error) {
+                console.error('Error fetching STL files:', error);
+                document.getElementById('gallery').innerHTML = '<p>Error loading STL files. Please check the console for details.</p>';
+            }
+        }
+
+        initGallery();
+    </script>
+</body>
+</html>
