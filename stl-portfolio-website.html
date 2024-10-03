@@ -89,6 +89,18 @@
         let loadedModelCount = 0;
         let sphereWireframes = [];
 
+        // Define the new area size
+        const areaSize = 50; // Half of the previous 100
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let isDragging = false;
+        let draggedModel = null;
+        let dragJoint = null;
+
+        let dragPlane;
+        let dragPoint = new THREE.Vector3();
+
         async function fetchSTLFiles() {
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
             const response = await fetch(apiUrl);
@@ -120,9 +132,6 @@
             directionalLight.position.set(1, 1, 1);
             scene.add(directionalLight);
 
-            const gridHelper = new THREE.GridHelper(50, 50);
-            scene.add(gridHelper);
-
             world = new CANNON.World({
                 gravity: new CANNON.Vec3(0, -9.82, 0)
             });
@@ -136,7 +145,7 @@
             planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
             world.addBody(planeBody);
 
-            const planeGeometry = new THREE.PlaneGeometry(100, 100);
+            const planeGeometry = new THREE.PlaneGeometry(areaSize, areaSize);
             const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc, side: THREE.DoubleSide });
             const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
             planeMesh.rotation.x = Math.PI / 2;
@@ -144,9 +153,9 @@
             scene.add(planeMesh);
 
             // Create borders
-            const borderHeight = 10;
+            const borderHeight = 5;
             const borderThickness = 1;
-            const borderGeometry = new THREE.BoxGeometry(100, borderHeight, borderThickness);
+            const borderGeometry = new THREE.BoxGeometry(areaSize, borderHeight, borderThickness);
             const borderMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
 
             const createBorder = (x, z, rotationY) => {
@@ -155,7 +164,7 @@
                 borderMesh.rotation.y = rotationY;
                 scene.add(borderMesh);
 
-                const borderShape = new CANNON.Box(new CANNON.Vec3(50, borderHeight / 2, borderThickness / 2));
+                const borderShape = new CANNON.Box(new CANNON.Vec3(areaSize / 2, borderHeight / 2, borderThickness / 2));
                 const borderBody = new CANNON.Body({ mass: 0 });
                 borderBody.addShape(borderShape);
                 borderBody.position.set(x, borderHeight / 2, z);
@@ -164,13 +173,85 @@
             };
 
             // Create four borders
-            createBorder(0, 50, 0);
-            createBorder(0, -50, 0);
-            createBorder(50, 0, Math.PI / 2);
-            createBorder(-50, 0, Math.PI / 2);
+            createBorder(0, areaSize / 2, 0);
+            createBorder(0, -areaSize / 2, 0);
+            createBorder(areaSize / 2, 0, Math.PI / 2);
+            createBorder(-areaSize / 2, 0, Math.PI / 2);
+
+            // Create a drag plane
+            dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
             console.log('Scene and physics world initialized');
             animate();
+        }
+
+        function onMouseDown(event) {
+            event.preventDefault();
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(loadedModels);
+
+            if (intersects.length > 0) {
+                isDragging = true;
+                draggedModel = intersects[0].object;
+
+                controls.enabled = false;
+
+                const physicsBody = draggedModel.userData.physicsBody;
+                physicsBody.velocity.set(0, 0, 0);
+                physicsBody.angularVelocity.set(0, 0, 0);
+
+                dragPlane.setFromNormalAndCoplanarPoint(
+                    camera.getWorldDirection(dragPlane.normal),
+                    intersects[0].point
+                );
+
+                dragPoint.copy(intersects[0].point).sub(draggedModel.position);
+            }
+        }
+
+        function onMouseMove(event) {
+            if (isDragging) {
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+
+                const intersectionPoint = new THREE.Vector3();
+                raycaster.ray.intersectPlane(dragPlane, intersectionPoint);
+
+                intersectionPoint.sub(dragPoint);
+
+                const physicsBody = draggedModel.userData.physicsBody;
+                physicsBody.position.copy(intersectionPoint);
+                physicsBody.velocity.set(0, 0, 0);
+            }
+        }
+
+        function onMouseUp(event) {
+            if (isDragging) {
+                isDragging = false;
+                draggedModel = null;
+
+                if (dragJoint) {
+                    world.removeConstraint(dragJoint);
+                    dragJoint = null;
+                }
+            }
+            
+            // Re-enable controls after a short delay
+            setTimeout(() => {
+                controls.enabled = true;
+                controls.saveState()
+                controls.reset()
+            }, 100);
+            
         }
 
         function createBoundingSphere(geometry, scale) {
@@ -181,8 +262,8 @@
             const sphereGeometry = new THREE.SphereGeometry(radius, 16, 16);
             const wireframe = new THREE.WireframeGeometry(sphereGeometry);
             const sphereWireframe = new THREE.LineSegments(wireframe);
-            sphereWireframe.material.color.setHex(0x00ff00);
-            sphereWireframe.material.opacity = 0.5;
+            sphereWireframe.material.color.setHex(0xffffff);
+            sphereWireframe.material.opacity = 0.25;
             sphereWireframe.material.transparent = true;
 
             const cannonShape = new CANNON.Sphere(radius);
@@ -224,10 +305,11 @@
                         mass: 1,
                         shape: shape,
                         position: new CANNON.Vec3(
-                            (Math.random() - 0.5) * 40, // Reduced spread
-                            20 + index * 2 + radius, // Lower drop height
-                            (Math.random() - 0.5) * 40 // Reduced spread
-                        )
+                            (Math.random() - 0.5) * (areaSize - 10), // Adjusted for smaller area
+                            20 + index * 2 + radius,
+                            (Math.random() - 0.5) * (areaSize - 10) // Adjusted for smaller area
+                        ),
+                        linearDamping: 0.9, // Add damping to reduce bouncing
                     });
 
                     body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
@@ -330,7 +412,9 @@
                 }
             }
 
-            controls.update();
+            if (!isDragging) {
+                controls.update();
+            }
             renderer.render(scene, camera);
         }
 
@@ -371,6 +455,12 @@
                     };
                     modelList.appendChild(listItem);
                 });
+
+                // Add event listeners for dragging
+                renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+                renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+                renderer.domElement.addEventListener('mouseup', onMouseUp, false);
+                renderer.domElement.addEventListener('mouseleave', onMouseUp, false); // Handle mouse leaving the canvas
 
                 window.addEventListener('resize', handleResize);
                 document.getElementById('toggleBoundingBoxes').addEventListener('change', toggleSphereWireframes);
