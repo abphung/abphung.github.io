@@ -63,7 +63,7 @@
         <div id="header">
             <h1>STL File Portfolio</h1>
             <label>
-                <input type="checkbox" id="toggleBoundingBoxes" checked> Show Convex Hulls
+                <input type="checkbox" id="toggleBoundingBoxes" checked> Show Bounding Spheres
             </label>
         </div>
         <div id="gallery">
@@ -76,7 +76,6 @@
         import * as THREE from 'https://jspm.dev/three@0.132.2';
         import { OrbitControls } from 'https://jspm.dev/three@0.132.2/examples/jsm/controls/OrbitControls';
         import { STLLoader } from 'https://jspm.dev/three@0.132.2/examples/jsm/loaders/STLLoader';
-        import { ConvexGeometry } from 'https://jspm.dev/three@0.132.2/examples/jsm/geometries/ConvexGeometry';
         import * as CANNON from 'https://jspm.dev/cannon-es@0.20.0';
 
         const owner = 'abphung';
@@ -88,7 +87,7 @@
         const loadedModels = [];
         let totalModelsToLoad = 0;
         let loadedModelCount = 0;
-        let convexHulls = [];
+        let sphereWireframes = [];
 
         async function fetchSTLFiles() {
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
@@ -102,9 +101,6 @@
         }
 
         function initScene(container) {
-            // Update the event listener for toggling convex hulls
-            document.getElementById('toggleBoundingBoxes').addEventListener('change', toggleConvexHulls);
-
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
             camera.position.set(0, 50, 50);
@@ -127,21 +123,19 @@
             const gridHelper = new THREE.GridHelper(50, 50);
             scene.add(gridHelper);
 
-            // Initialize physics world with more realistic settings
             world = new CANNON.World({
                 gravity: new CANNON.Vec3(0, -9.82, 0)
             });
             world.defaultContactMaterial.friction = 0.5;
             world.defaultContactMaterial.restitution = 0.3;
 
-            // Create a plane for the floor
+            // Create floor
             const planeShape = new CANNON.Plane();
             const planeBody = new CANNON.Body({ mass: 0 });
             planeBody.addShape(planeShape);
             planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
             world.addBody(planeBody);
 
-            // Create a Three.js plane to visualize the floor
             const planeGeometry = new THREE.PlaneGeometry(100, 100);
             const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc, side: THREE.DoubleSide });
             const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
@@ -149,8 +143,51 @@
             planeMesh.position.y = 0;
             scene.add(planeMesh);
 
+            // Create borders
+            const borderHeight = 10;
+            const borderThickness = 1;
+            const borderGeometry = new THREE.BoxGeometry(100, borderHeight, borderThickness);
+            const borderMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
+
+            const createBorder = (x, z, rotationY) => {
+                const borderMesh = new THREE.Mesh(borderGeometry, borderMaterial);
+                borderMesh.position.set(x, borderHeight / 2, z);
+                borderMesh.rotation.y = rotationY;
+                scene.add(borderMesh);
+
+                const borderShape = new CANNON.Box(new CANNON.Vec3(50, borderHeight / 2, borderThickness / 2));
+                const borderBody = new CANNON.Body({ mass: 0 });
+                borderBody.addShape(borderShape);
+                borderBody.position.set(x, borderHeight / 2, z);
+                borderBody.quaternion.setFromEuler(0, rotationY, 0);
+                world.addBody(borderBody);
+            };
+
+            // Create four borders
+            createBorder(0, 50, 0);
+            createBorder(0, -50, 0);
+            createBorder(50, 0, Math.PI / 2);
+            createBorder(-50, 0, Math.PI / 2);
+
             console.log('Scene and physics world initialized');
             animate();
+        }
+
+        function createBoundingSphere(geometry, scale) {
+            geometry.computeBoundingSphere();
+            const sphere = geometry.boundingSphere;
+            const radius = sphere.radius * scale;
+
+            const sphereGeometry = new THREE.SphereGeometry(radius, 16, 16);
+            const wireframe = new THREE.WireframeGeometry(sphereGeometry);
+            const sphereWireframe = new THREE.LineSegments(wireframe);
+            sphereWireframe.material.color.setHex(0x00ff00);
+            sphereWireframe.material.opacity = 0.5;
+            sphereWireframe.material.transparent = true;
+
+            const cannonShape = new CANNON.Sphere(radius);
+
+            return { visual: sphereWireframe, physical: cannonShape, radius: radius };
         }
 
         function loadSTLModel(file, index) {
@@ -166,69 +203,38 @@
                     });
                     const mesh = new THREE.Mesh(geometry, material);
 
-                    // Center the geometry
                     geometry.center();
-
-                    // Compute the bounding box
                     geometry.computeBoundingBox();
                     const box = new THREE.Box3().setFromObject(mesh);
                     const size = box.getSize(new THREE.Vector3());
 
-                    // Determine the tallest dimension
                     const tallestDimension = Math.max(size.x, size.y, size.z);
-                    const scale = 5 / tallestDimension; // Scale to make the tallest dimension 5 units
+                    const scale = 5 / tallestDimension;
 
-                    // Scale the mesh
                     mesh.scale.set(scale, scale, scale);
-
-                    // Rotate the mesh to stand upright (assuming Y is up)
                     mesh.rotation.x = -Math.PI / 2;
 
-                    // Create convex hull
-                    const points = [];
-                    const positionAttribute = geometry.getAttribute('position');
-                    for (let i = 0; i < positionAttribute.count; i++) {
-                        points.push(new THREE.Vector3().fromBufferAttribute(positionAttribute, i));
-                    }
-                    const convexGeometry = new ConvexGeometry(points);
-                    const convexHull = new THREE.Mesh(
-                        convexGeometry, 
-                        new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true, opacity: 0.5, transparent: true })
-                    );
-                    convexHull.scale.copy(mesh.scale);
-                    convexHull.rotation.copy(mesh.rotation);
-                    scene.add(convexHull);
-                    convexHulls.push(convexHull);
-
-                    // Create a physics body using the convex hull
-                    const scaledPoints = points.map(p => new CANNON.Vec3(p.x * scale, p.y * scale, p.z * scale));
-                    
-                    let shape;
-                    try {
-                        shape = new CANNON.ConvexPolyhedron({ vertices: scaledPoints });
-                    } catch (error) {
-                        console.error(`Error creating ConvexPolyhedron for ${file.name}:`, error);
-                        // Use a simple sphere shape as fallback
-                        const radius = Math.max(size.x, size.y, size.z) / 2;
-                        shape = new CANNON.Sphere(radius);
-                    }
+                    const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, scale);
+                    sphereWireframe.position.copy(mesh.position);
+                    sphereWireframe.rotation.copy(mesh.rotation);
+                    scene.add(sphereWireframe);
+                    sphereWireframes.push(sphereWireframe);
 
                     const body = new CANNON.Body({
                         mass: 1,
                         shape: shape,
                         position: new CANNON.Vec3(
-                            (Math.random() - 0.5) * 20,
-                            50 + index * 10,
-                            (Math.random() - 0.5) * 20
+                            (Math.random() - 0.5) * 40, // Reduced spread
+                            20 + index * 2 + radius, // Lower drop height
+                            (Math.random() - 0.5) * 40 // Reduced spread
                         )
                     });
 
-                    // Rotate the physics body to match the mesh
                     body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
 
                     world.addBody(body);
                     mesh.userData.physicsBody = body;
-                    convexHull.userData.physicsBody = body;
+                    sphereWireframe.userData.physicsBody = body;
 
                     scene.add(mesh);
                     loadedModels.push(mesh);
@@ -298,11 +304,10 @@
             console.log('Controls target:', controls.target);
         }
 
-        function toggleConvexHulls(event) {
+        function toggleSphereWireframes(event) {
             const visible = event.target.checked;
-            convexHulls.forEach(hull => hull.visible = visible);
+            sphereWireframes.forEach(wireframe => wireframe.visible = visible);
         }
-
 
         function animate() {
             requestAnimationFrame(animate);
@@ -311,7 +316,6 @@
                 world.step(1 / 60);
             } catch (error) {
                 console.error('Error in physics simulation step:', error);
-                // You might want to implement some recovery logic here
             }
             
             for (let i = 0; i < loadedModels.length; i++) {
@@ -319,10 +323,9 @@
                     loadedModels[i].position.copy(loadedModels[i].userData.physicsBody.position);
                     loadedModels[i].quaternion.copy(loadedModels[i].userData.physicsBody.quaternion);
                     
-                    // Update convex hull positions
-                    if (convexHulls[i]) {
-                        convexHulls[i].position.copy(loadedModels[i].position);
-                        convexHulls[i].quaternion.copy(loadedModels[i].quaternion);
+                    if (sphereWireframes[i]) {
+                        sphereWireframes[i].position.copy(loadedModels[i].position);
+                        sphereWireframes[i].quaternion.copy(loadedModels[i].quaternion);
                     }
                 }
             }
@@ -370,6 +373,7 @@
                 });
 
                 window.addEventListener('resize', handleResize);
+                document.getElementById('toggleBoundingBoxes').addEventListener('change', toggleSphereWireframes);
             } catch (error) {
                 console.error('Error fetching STL files:', error);
                 document.getElementById('gallery').innerHTML = '<p>Error loading STL files. Please check the console for details.</p>';
