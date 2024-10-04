@@ -12,6 +12,7 @@
             height: 100%;
             overflow: hidden;
             font-family: Arial, sans-serif;
+            background-color: #f0f4f8;
         }
         #container {
             width: 100%;
@@ -20,7 +21,8 @@
             flex-direction: column;
         }
         #header {
-            background-color: #f0f0f0;
+            background-color: #1a365d;
+            color: #ffffff;
             padding: 10px;
             display: flex;
             justify-content: space-between;
@@ -38,22 +40,24 @@
         #model-list {
             width: 200px;
             overflow-y: auto;
-            background-color: #f0f0f0;
+            background-color: #e2e8f0;
             padding: 10px;
         }
         .model-item {
             cursor: pointer;
             padding: 5px;
             margin: 5px 0;
-            background-color: #fff;
-            border: 1px solid #ddd;
+            background-color: #ffffff;
+            border: 1px solid #cbd5e0;
             border-radius: 3px;
+            color: #2d3748;
         }
         .model-item:hover {
-            background-color: #e0e0e0;
+            background-color: #edf2f7;
         }
         .model-item.active {
-            background-color: #d0d0d0;
+            background-color: #4a5568;
+            color: #ffffff;
             font-weight: bold;
         }
     </style>
@@ -90,7 +94,7 @@
         let sphereWireframes = [];
 
         // Define the new area size
-        const areaSize = 500; // Half of the previous 100
+        const areaSize = 300; // Half of the previous 100
 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -108,6 +112,22 @@
 
         let draggedModelRadius = 0;
 
+        const MAX_VELOCITY = 1500; // Maximum velocity magnitude
+        const colorPalette = [
+            '#3498db', // Blue
+            '#2ecc71', // Green
+            '#e74c3c', // Red
+            '#f39c12', // Orange
+            '#9b59b6', // Purple
+            '#1abc9c', // Teal
+            '#34495e', // Dark Blue
+            '#95a5a6'  // Gray
+        ];
+
+        function getRandomColor() {
+            return colorPalette[Math.floor(Math.random() * colorPalette.length)];
+        }
+
         async function fetchSTLFiles() {
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
             const response = await fetch(apiUrl);
@@ -121,8 +141,10 @@
 
         function initScene(container) {
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
-            camera.position.set(areaSize, areaSize, areaSize); // Set camera to a sensible starting position
+            scene.background = new THREE.Color('#f0f4f8'); // Light blue-gray background
+            
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 3000);
+            camera.position.set(1.5*areaSize, 1.5*areaSize, 1.5*areaSize);
             camera.lookAt(0, 0, 0);
             
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -141,7 +163,7 @@
             scene.add(directionalLight);
 
             world = new CANNON.World({
-                gravity: new CANNON.Vec3(0, -400, 0) // Increased gravity (was -9.82)
+                gravity: new CANNON.Vec3(0, -600, 0)
             });
             world.defaultContactMaterial.friction = 0.5;
             world.defaultContactMaterial.restitution = 0.3;
@@ -153,18 +175,29 @@
             planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
             world.addBody(planeBody);
 
-            const planeGeometry = new THREE.PlaneGeometry(areaSize, areaSize);
-            const planeMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc, side: THREE.DoubleSide });
+            // Reduce ground friction
+            const groundMaterial = new CANNON.Material('ground');
+            planeBody.material = groundMaterial;
+
+            const objectMaterial = new CANNON.Material('object');
+            const groundObjectContact = new CANNON.ContactMaterial(groundMaterial, objectMaterial, {
+                friction: 0.2, // Reduced friction (default is 0.3)
+                restitution: 0.3 // Slight increase in bounciness
+            });
+            world.addContactMaterial(groundObjectContact);
+
+            const planeGeometry = new THREE.PlaneGeometry(areaSize * 2, areaSize * 2);
+            const planeMaterial = new THREE.MeshBasicMaterial({ color: '#e2e8f0', side: THREE.DoubleSide });
             const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
             planeMesh.rotation.x = Math.PI / 2;
             planeMesh.position.y = 0;
             scene.add(planeMesh);
 
             // Create borders
-            const borderHeight = 5;
-            const borderThickness = 1;
-            const borderGeometry = new THREE.BoxGeometry(areaSize, borderHeight, borderThickness);
-            const borderMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
+            const borderHeight = areaSize/3;
+            const borderThickness = areaSize/100;
+            const borderGeometry = new THREE.BoxGeometry(areaSize * 2, borderHeight, borderThickness);
+            const borderMaterial = new THREE.MeshBasicMaterial({ color: '#4a5568' });
 
             const createBorder = (x, z, rotationY) => {
                 const borderMesh = new THREE.Mesh(borderGeometry, borderMaterial);
@@ -172,7 +205,7 @@
                 borderMesh.rotation.y = rotationY;
                 scene.add(borderMesh);
 
-                const borderShape = new CANNON.Box(new CANNON.Vec3(areaSize / 2, borderHeight / 2, borderThickness / 2));
+                const borderShape = new CANNON.Box(new CANNON.Vec3(areaSize, borderHeight / 2, borderThickness / 2));
                 const borderBody = new CANNON.Body({ mass: 0 });
                 borderBody.addShape(borderShape);
                 borderBody.position.set(x, borderHeight / 2, z);
@@ -181,10 +214,10 @@
             };
 
             // Create four borders
-            createBorder(0, areaSize / 2, 0);
-            createBorder(0, -areaSize / 2, 0);
-            createBorder(areaSize / 2, 0, Math.PI / 2);
-            createBorder(-areaSize / 2, 0, Math.PI / 2);
+            createBorder(0, areaSize, 0);
+            createBorder(0, -areaSize, 0);
+            createBorder(areaSize, 0, Math.PI / 2);
+            createBorder(-areaSize, 0, Math.PI / 2);
 
             // Create a drag plane
             dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -269,9 +302,17 @@
                 isDragging = false;
                 const physicsBody = draggedModel.userData.physicsBody;
                 
-                // Apply momentum based on model velocity
+                // Apply momentum based on model velocity, but limit it
                 const velocityMultiplier = 1; // Adjust this value to control the momentum
-                physicsBody.velocity.copy(modelVelocity.multiplyScalar(velocityMultiplier));
+                let newVelocity = modelVelocity.multiplyScalar(velocityMultiplier);
+                
+                // Limit the velocity magnitude
+                if (newVelocity.length() > MAX_VELOCITY) {
+                    newVelocity.normalize().multiplyScalar(MAX_VELOCITY);
+                }
+                
+                physicsBody.velocity.copy(newVelocity);
+                physicsBody.position.y += 0.01; // Small upward offset on release
 
                 draggedModel = null;
                 draggedModelRadius = 0;
@@ -314,9 +355,9 @@
                 (geometry) => {
                     console.log(`Model loaded successfully: ${file.name}`);
                     const material = new THREE.MeshPhongMaterial({ 
-                        color: new THREE.Color(Math.random(), Math.random(), Math.random()),
+                        color: new THREE.Color(getRandomColor()),
                         specular: 0x111111, 
-                        shininess: 0 
+                        shininess: 30
                     });
                     const mesh = new THREE.Mesh(geometry, material);
 
@@ -326,7 +367,7 @@
                     const size = box.getSize(new THREE.Vector3());
 
                     const tallestDimension = Math.max(size.x, size.y, size.z);
-                    const scale = 1;//5 / tallestDimension;
+                    const scale = 1;
 
                     mesh.scale.set(scale, scale, scale);
                     mesh.rotation.x = -Math.PI / 2;
@@ -334,19 +375,30 @@
                     const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, scale);
                     sphereWireframe.position.copy(mesh.position);
                     sphereWireframe.rotation.copy(mesh.rotation);
+                    sphereWireframe.material.color.setHex(0x4a5568);
                     scene.add(sphereWireframe);
                     sphereWireframes.push(sphereWireframe);
 
+                    const spawnHeight = 500 + index * 10; // Increased height
+                    const offsetRange = 20; // Range for random offset
+                    const offsetX = (Math.random() - 0.5) * offsetRange;
+                    const offsetZ = (Math.random() - 0.5) * offsetRange;
+                    
                     const body = new CANNON.Body({
                         mass: 1,
                         shape: shape,
-                        position: new CANNON.Vec3(
-                            (Math.random() - 0.5) * (areaSize - 10), // Adjusted for smaller area
-                            20 + index * 2 + radius,
-                            (Math.random() - 0.5) * (areaSize - 10) // Adjusted for smaller area
-                        ),
-                        linearDamping: 0.9, // Add damping to reduce bouncing
+                        position: new CANNON.Vec3(offsetX, spawnHeight, offsetZ),
+                        linearDamping: 0.5, // Reduced from 0.9 to allow more movement
+                        angularDamping: 0.5, // Added to allow more rotation
                     });
+
+                    // Add initial velocity for more movement
+                    const initialVelocity = new CANNON.Vec3(
+                        (Math.random() - 0.5) * 10,
+                        0,
+                        (Math.random() - 0.5) * 10
+                    );
+                    body.velocity.copy(initialVelocity);
 
                     body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
 
@@ -425,7 +477,7 @@
                 loadedModelCount = 0;
 
                 files.forEach((file, index) => {
-                    setTimeout(() => loadSTLModel(file, index), index * 1000);
+                    setTimeout(() => loadSTLModel(file, index), index * 1000); // Reduced delay to 500ms
 
                     const listItem = document.createElement('div');
                     listItem.className = 'model-item active';
