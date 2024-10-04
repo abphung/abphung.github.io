@@ -90,7 +90,7 @@
         let sphereWireframes = [];
 
         // Define the new area size
-        const areaSize = 50; // Half of the previous 100
+        const areaSize = 500; // Half of the previous 100
 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -100,6 +100,13 @@
 
         let dragPlane;
         let dragPoint = new THREE.Vector3();
+
+        let lastModelPosition = new THREE.Vector3();
+        let currentModelPosition = new THREE.Vector3();
+        let modelVelocity = new THREE.Vector3();
+        let lastUpdateTime = 0;
+
+        let draggedModelRadius = 0;
 
         async function fetchSTLFiles() {
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
@@ -114,8 +121,9 @@
 
         function initScene(container) {
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-            camera.position.set(0, 50, 50);
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
+            camera.position.set(areaSize, areaSize, areaSize); // Set camera to a sensible starting position
+            camera.lookAt(0, 0, 0);
             
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
@@ -133,7 +141,7 @@
             scene.add(directionalLight);
 
             world = new CANNON.World({
-                gravity: new CANNON.Vec3(0, -9.82, 0)
+                gravity: new CANNON.Vec3(0, -400, 0) // Increased gravity (was -9.82)
             });
             world.defaultContactMaterial.friction = 0.5;
             world.defaultContactMaterial.restitution = 0.3;
@@ -206,12 +214,20 @@
                 physicsBody.velocity.set(0, 0, 0);
                 physicsBody.angularVelocity.set(0, 0, 0);
 
+                // Store the radius of the dragged model's bounding sphere
+                draggedModelRadius = physicsBody.shapes[0].radius;
+
                 dragPlane.setFromNormalAndCoplanarPoint(
                     camera.getWorldDirection(dragPlane.normal),
                     intersects[0].point
                 );
 
                 dragPoint.copy(intersects[0].point).sub(draggedModel.position);
+
+                // Initialize model positions and time
+                lastModelPosition.copy(draggedModel.position);
+                currentModelPosition.copy(draggedModel.position);
+                lastUpdateTime = performance.now();
             }
         }
 
@@ -228,16 +244,37 @@
 
                 intersectionPoint.sub(dragPoint);
 
+                // Ensure the model stays above the floor
+                intersectionPoint.y = Math.max(intersectionPoint.y, draggedModelRadius);
+
                 const physicsBody = draggedModel.userData.physicsBody;
                 physicsBody.position.copy(intersectionPoint);
                 physicsBody.velocity.set(0, 0, 0);
+
+                // Update model positions and calculate velocity
+                const currentTime = performance.now();
+                const deltaTime = (currentTime - lastUpdateTime) / 1000; // Convert to seconds
+                
+                lastModelPosition.copy(currentModelPosition);
+                currentModelPosition.copy(intersectionPoint);
+                
+                modelVelocity.subVectors(currentModelPosition, lastModelPosition).divideScalar(deltaTime);
+
+                lastUpdateTime = currentTime;
             }
         }
 
         function onMouseUp(event) {
             if (isDragging) {
                 isDragging = false;
+                const physicsBody = draggedModel.userData.physicsBody;
+                
+                // Apply momentum based on model velocity
+                const velocityMultiplier = 1; // Adjust this value to control the momentum
+                physicsBody.velocity.copy(modelVelocity.multiplyScalar(velocityMultiplier));
+
                 draggedModel = null;
+                draggedModelRadius = 0;
 
                 if (dragJoint) {
                     world.removeConstraint(dragJoint);
@@ -248,10 +285,9 @@
             // Re-enable controls after a short delay
             setTimeout(() => {
                 controls.enabled = true;
-                controls.saveState()
-                controls.reset()
+                controls.saveState();
+                controls.reset();
             }, 100);
-            
         }
 
         function createBoundingSphere(geometry, scale) {
@@ -290,7 +326,7 @@
                     const size = box.getSize(new THREE.Vector3());
 
                     const tallestDimension = Math.max(size.x, size.y, size.z);
-                    const scale = 5 / tallestDimension;
+                    const scale = 1;//5 / tallestDimension;
 
                     mesh.scale.set(scale, scale, scale);
                     mesh.rotation.x = -Math.PI / 2;
@@ -325,9 +361,6 @@
                     console.log(`Total models in scene: ${loadedModels.length}`);
 
                     loadedModelCount++;
-                    if (loadedModelCount === totalModelsToLoad) {
-                        centerCameraOnModels();
-                    }
                 },
                 (xhr) => {
                     console.log(`${file.name} ${(xhr.loaded / xhr.total * 100)}% loaded`);
@@ -335,55 +368,8 @@
                 (error) => {
                     console.error(`Error loading ${file.name}:`, error);
                     loadedModelCount++;
-                    if (loadedModelCount === totalModelsToLoad) {
-                        centerCameraOnModels();
-                    }
                 }
             );
-        }
-
-        function centerCameraOnModels() {
-            if (loadedModels.length === 0) {
-                console.log('No models loaded yet');
-                return;
-            }
-
-            const box = new THREE.Box3();
-            let validModels = 0;
-
-            for (const model of loadedModels) {
-                if (model && model.geometry) {
-                    box.expandByObject(model);
-                    validModels++;
-                }
-            }
-            
-            if (validModels === 0) {
-                console.error('No valid models found for camera centering');
-                camera.position.set(0, 50, 50);
-                controls.target.set(0, 0, 0);
-            } else {
-                const center = box.getCenter(new THREE.Vector3());
-                const size = box.getSize(new THREE.Vector3());
-                const maxDim = Math.max(size.x, size.y, size.z);
-                
-                if (isNaN(center.x) || isNaN(center.y) || isNaN(center.z) || !isFinite(maxDim)) {
-                    console.error('Invalid bounding box calculated. Using default values.');
-                    camera.position.set(0, 50, 50);
-                    controls.target.set(0, 0, 0);
-                } else {
-                    const fov = camera.fov * (Math.PI / 180);
-                    const cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 2.5;
-                    camera.position.set(center.x, center.y + maxDim / 2, center.z + cameraZ);
-                    controls.target.copy(center);
-                }
-            }
-
-            controls.update();
-
-            console.log('Camera centered on models');
-            console.log('Camera position:', camera.position);
-            console.log('Controls target:', controls.target);
         }
 
         function toggleSphereWireframes(event) {
