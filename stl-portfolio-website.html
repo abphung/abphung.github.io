@@ -20,14 +20,6 @@
             display: flex;
             flex-direction: column;
         }
-        #header {
-            background-color: #1a365d;
-            color: #ffffff;
-            padding: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
         #gallery {
             flex-grow: 1;
             display: flex;
@@ -36,29 +28,6 @@
         .stl-viewer {
             flex-grow: 1;
             position: relative;
-        }
-        #model-list {
-            width: 200px;
-            overflow-y: auto;
-            background-color: #e2e8f0;
-            padding: 10px;
-        }
-        .model-item {
-            cursor: pointer;
-            padding: 5px;
-            margin: 5px 0;
-            background-color: #ffffff;
-            border: 1px solid #cbd5e0;
-            border-radius: 3px;
-            color: #2d3748;
-        }
-        .model-item:hover {
-            background-color: #edf2f7;
-        }
-        .model-item.active {
-            background-color: #4a5568;
-            color: #ffffff;
-            font-weight: bold;
         }
         #hoverTooltip {
             display: none;
@@ -75,16 +44,9 @@
 </head>
 <body>
     <div id="container">
-        <div id="header">
-            <h1>STL File Portfolio</h1>
-            <label>
-                <input type="checkbox" id="toggleBoundingBoxes" checked> Show Bounding Spheres
-            </label>
-        </div>
         <div id="hoverTooltip" style="display: none; position: absolute; background-color: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 5px; font-size: 14px;"></div>
         <div id="gallery">
             <div class="stl-viewer" id="stl-viewer"></div>
-            <div id="model-list"></div>
         </div>
     </div>
 
@@ -93,6 +55,7 @@
         import { OrbitControls } from 'https://jspm.dev/three@0.132.2/examples/jsm/controls/OrbitControls';
         import { STLLoader } from 'https://jspm.dev/three@0.132.2/examples/jsm/loaders/STLLoader';
         import * as CANNON from 'https://jspm.dev/cannon-es@0.20.0';
+        import { LOD } from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.module.js';
 
         const owner = 'abphung';
         const repo = 'abphung.github.io';
@@ -106,7 +69,7 @@
         let sphereWireframes = [];
 
         // Define the new area size
-        const areaSize = 300; // Half of the previous 100
+        const areaSize = 1200; // Half of the previous 100
 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -136,6 +99,9 @@
         };
         let isZoomedIn = false;
         let zoomedModel = null;
+
+        const frustum = new THREE.Frustum();
+        const projScreenMatrix = new THREE.Matrix4();
 
         const MAX_VELOCITY = 1500; // Maximum velocity magnitude
         const colorPalette = [
@@ -180,6 +146,7 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.25;
             controls.enableZoom = true;
+            controls.addEventListener('change', updateFrustum);
 
             const ambientLight = new THREE.AmbientLight(0x404040);
             scene.add(ambientLight);
@@ -249,6 +216,12 @@
 
             console.log('Scene and physics world initialized');
             animate();
+        }
+
+        function updateFrustum() {
+            camera.updateMatrixWorld();
+            projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            frustum.setFromProjectionMatrix(projScreenMatrix);
         }
 
         function onMouseDown(event) {
@@ -519,7 +492,7 @@
             return { visual: sphereWireframe, physical: cannonShape, radius: radius };
         }
 
-        function loadSTLModel(file, index) {
+        function loadSTLModel(file, index, count = 1) {
             console.log(`Starting to load model: ${file.name}`);
             loader.load(
                 file.url,
@@ -530,61 +503,79 @@
                         specular: 0x111111, 
                         shininess: 30
                     });
-                    const mesh = new THREE.Mesh(geometry, material);
-                    mesh.userData.fileName = file.name;
+                    for (let i = 0; i < count; i++) {
+                        const lod = new THREE.LOD();
 
-                    geometry.center();
-                    geometry.computeBoundingBox();
-                    const box = new THREE.Box3().setFromObject(mesh);
-                    const size = box.getSize(new THREE.Vector3());
+                        // High detail
+                        const meshHigh = new THREE.Mesh(geometry, material);
+                        meshHigh.scale.set(1, 1, 1);
 
-                    const tallestDimension = Math.max(size.x, size.y, size.z);
-                    const scale = 1;
+                        // Medium detail
+                        const geometryMed = geometry.clone().scale(0.5, 0.5, 0.5);
+                        const meshMed = new THREE.Mesh(geometryMed, material);
 
-                    mesh.scale.set(scale, scale, scale);
-                    mesh.rotation.x = -Math.PI / 2;
+                        // Low detail
+                        const geometryLow = geometry.clone().scale(0.25, 0.25, 0.25);
+                        const meshLow = new THREE.Mesh(geometryLow, material);
 
-                    const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, scale);
-                    sphereWireframe.position.copy(mesh.position);
-                    sphereWireframe.rotation.copy(mesh.rotation);
-                    sphereWireframe.material.color.setHex(0x4a5568);
-                    scene.add(sphereWireframe);
-                    sphereWireframes.push(sphereWireframe);
+                        lod.addLevel(meshHigh, 0);
+                        lod.addLevel(meshMed, 100);
+                        lod.addLevel(meshLow, 300);
+                        lod.userData.fileName = `${file.name} (${i+1})`;
 
-                    const spawnHeight = 500 + index * 10; // Increased height
-                    const offsetRange = 20; // Range for random offset
-                    const offsetX = (Math.random() - 0.5) * offsetRange;
-                    const offsetZ = (Math.random() - 0.5) * offsetRange;
-                    
-                    const body = new CANNON.Body({
-                        mass: 1,
-                        shape: shape,
-                        position: new CANNON.Vec3(offsetX, spawnHeight, offsetZ),
-                        linearDamping: 0.5, // Reduced from 0.9 to allow more movement
-                        angularDamping: 0.5, // Added to allow more rotation
-                    });
+                        geometry.center();
+                        geometry.computeBoundingBox();
+                        const box = new THREE.Box3().setFromObject(lod);
+                        const size = box.getSize(new THREE.Vector3());
 
-                    // Add initial velocity for more movement
-                    const initialVelocity = new CANNON.Vec3(
-                        (Math.random() - 0.5) * 10,
-                        0,
-                        (Math.random() - 0.5) * 10
-                    );
-                    body.velocity.copy(initialVelocity);
+                        const tallestDimension = Math.max(size.x, size.y, size.z);
+                        const scale = 1;
 
-                    body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+                        lod.scale.set(scale, scale, scale);
+                        lod.rotation.x = -Math.PI / 2;
 
-                    world.addBody(body);
-                    mesh.userData.physicsBody = body;
-                    sphereWireframe.userData.physicsBody = body;
+                        const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, scale);
+                        sphereWireframe.position.copy(lod.position);
+                        sphereWireframe.rotation.copy(lod.rotation);
+                        sphereWireframe.material.color.setHex(0x4a5568);
+                        scene.add(sphereWireframe);
+                        sphereWireframes.push(sphereWireframe);
 
-                    scene.add(mesh);
-                    loadedModels.push(mesh);
+                        const spawnHeight = 500 + (index * count + i) * 10; // Increased height
+                        const offsetRange = 20; // Range for random offset
+                        const offsetX = (Math.random() - 0.5) * offsetRange * count;
+                        const offsetZ = (Math.random() - 0.5) * offsetRange * count;
+                        
+                        const body = new CANNON.Body({
+                            mass: 1,
+                            shape: shape,
+                            position: new CANNON.Vec3(offsetX, spawnHeight, offsetZ),
+                            linearDamping: 0.5, // Reduced from 0.9 to allow more movement
+                            angularDamping: 0.5, // Added to allow more rotation
+                        });
 
-                    console.log(`Model added to scene: ${file.name}`);
-                    console.log(`Total models in scene: ${loadedModels.length}`);
+                        // Add initial velocity for more movement
+                        const initialVelocity = new CANNON.Vec3(
+                            (Math.random() - 0.5) * 10,
+                            0,
+                            (Math.random() - 0.5) * 10
+                        );
+                        body.velocity.copy(initialVelocity);
 
-                    loadedModelCount++;
+                        body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+
+                        world.addBody(body);
+                        lod.userData.physicsBody = body;
+                        sphereWireframe.userData.physicsBody = body;
+
+                        scene.add(lod);
+                        loadedModels.push(lod);
+
+                        console.log(`Model added to scene: ${file.name}`);
+                        console.log(`Total models in scene: ${loadedModels.length}`);
+
+                        loadedModelCount++;
+                    }
                 },
                 (xhr) => {
                     console.log(`${file.name} ${(xhr.loaded / xhr.total * 100)}% loaded`);
@@ -594,11 +585,6 @@
                     loadedModelCount++;
                 }
             );
-        }
-
-        function toggleSphereWireframes(event) {
-            const visible = event.target.checked;
-            sphereWireframes.forEach(wireframe => wireframe.visible = visible);
         }
 
         function animate() {
@@ -644,7 +630,6 @@
                 console.log('Fetched files:', files);
 
                 const container = document.getElementById('stl-viewer');
-                const modelList = document.getElementById('model-list');
 
                 hoverTooltip = document.getElementById('hoverTooltip');
 
@@ -654,21 +639,7 @@
                 loadedModelCount = 0;
 
                 files.forEach((file, index) => {
-                    setTimeout(() => loadSTLModel(file, index), index * 1000); // Reduced delay to 500ms
-
-                    const listItem = document.createElement('div');
-                    listItem.className = 'model-item active';
-                    listItem.textContent = file.name;
-                    listItem.onclick = () => {
-                        if (loadedModels[index]) {
-                            loadedModels[index].visible = !loadedModels[index].visible;
-                            listItem.classList.toggle('active', loadedModels[index].visible);
-                            console.log(`Toggled visibility of ${file.name}: ${loadedModels[index].visible}`);
-                        } else {
-                            console.error(`Model at index ${index} not found`);
-                        }
-                    };
-                    modelList.appendChild(listItem);
+                    setTimeout(() => loadSTLModel(file, index, 50), index * 1000); // Reduced delay to 500ms
                 });
 
                 // Add event listeners for dragging
@@ -680,7 +651,6 @@
                 renderer.domElement.addEventListener('mouseout', onMouseOut);
 
                 window.addEventListener('resize', handleResize);
-                document.getElementById('toggleBoundingBoxes').addEventListener('change', toggleSphereWireframes);
             } catch (error) {
                 console.error('Error fetching STL files:', error);
                 document.getElementById('gallery').innerHTML = '<p>Error loading STL files. Please check the console for details.</p>';
