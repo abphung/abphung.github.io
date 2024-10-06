@@ -254,6 +254,9 @@
         function onMouseDown(event) {
             event.preventDefault();
 
+            // If zoomed in, don't allow dragging models
+            if (isZoomedIn) return;
+
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -290,7 +293,7 @@
         }
 
         function onMouseMove(event) {
-            if (isDragging) {
+            if (isDragging && !isZoomedIn) {
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -365,7 +368,7 @@
         }
 
         function onMouseUp(event) {
-            if (isDragging) {
+            if (isDragging && !isZoomedIn) {
                 isDragging = false;
                 const physicsBody = draggedModel.userData.physicsBody;
                 
@@ -389,6 +392,9 @@
                     dragJoint = null;
                 }
             }
+
+            isDragging = false;
+            draggedModel = null;
             
             // Re-enable controls after a short delay
             setTimeout(() => {
@@ -445,7 +451,11 @@
             const newCameraPosition = boundingSphere.center.clone().add(direction.multiplyScalar(distance));
 
             // Animate camera movement
-            animateCamera(newCameraPosition, boundingSphere.center);
+            animateCamera(newCameraPosition, boundingSphere.center, () => {
+                // After animation, update controls
+                controls.target.copy(boundingSphere.center);
+                controls.update();
+            });
         }
 
         function zoomOut() {
@@ -453,10 +463,14 @@
             zoomedModel = null;
 
             // Animate camera movement back to previous position
-            animateCamera(previousCameraState.position, previousCameraState.target);
+            animateCamera(previousCameraState.position, previousCameraState.target, () => {
+                // After animation, update controls
+                controls.target.copy(previousCameraState.target);
+                controls.update();
+            });
         }
 
-        function animateCamera(targetPosition, targetLookAt) {
+        function animateCamera(targetPosition, targetLookAt, callback) {
             const startPosition = camera.position.clone();
             const startLookAt = controls.target.clone();
             const duration = 1000; // Animation duration in milliseconds
@@ -475,6 +489,8 @@
 
                 if (progress < 1) {
                     requestAnimationFrame(updateCamera);
+                } else if (callback) {
+                    callback();
                 }
             }
 
