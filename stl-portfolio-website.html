@@ -130,6 +130,13 @@
         let lastHoverUpdateTime = 0;
         const HOVER_UPDATE_INTERVAL = 100;
 
+        let previousCameraState = {
+            position: new THREE.Vector3(),
+            target: new THREE.Vector3()
+        };
+        let isZoomedIn = false;
+        let zoomedModel = null;
+
         const MAX_VELOCITY = 1500; // Maximum velocity magnitude
         const colorPalette = [
             '#3498db', // Blue
@@ -391,6 +398,94 @@
             }, 100);
         }
 
+        function onDoubleClick(event) {
+            event.preventDefault();
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(loadedModels);
+
+            if (intersects.length > 0) {
+                const intersectedObject = intersects[0].object;
+
+                if (isZoomedIn && intersectedObject === zoomedModel) {
+                    // If already zoomed in on this model, zoom out
+                    zoomOut();
+                } else {
+                    // Zoom in on the double-clicked model
+                    zoomIn(intersectedObject);
+                }
+            } else if (isZoomedIn) {
+                // If double-clicked outside any model while zoomed in, zoom out
+                zoomOut();
+            }
+        }
+
+        function zoomIn(model) {
+            // Store current camera state
+            previousCameraState.position.copy(camera.position);
+            previousCameraState.target.copy(controls.target);
+
+            isZoomedIn = true;
+            zoomedModel = model;
+
+            // Calculate the bounding sphere of the model
+            const boundingSphere = new THREE.Sphere();
+            model.geometry.computeBoundingSphere();
+            boundingSphere.copy(model.geometry.boundingSphere);
+            boundingSphere.applyMatrix4(model.matrixWorld);
+
+            // Calculate the ideal camera position
+            const direction = camera.position.clone().sub(controls.target).normalize();
+            const distance = boundingSphere.radius * 2.5;
+            const newCameraPosition = boundingSphere.center.clone().add(direction.multiplyScalar(distance));
+
+            // Animate camera movement
+            animateCamera(newCameraPosition, boundingSphere.center);
+        }
+
+        function zoomOut() {
+            isZoomedIn = false;
+            zoomedModel = null;
+
+            // Animate camera movement back to previous position
+            animateCamera(previousCameraState.position, previousCameraState.target);
+        }
+
+        function animateCamera(targetPosition, targetLookAt) {
+            const startPosition = camera.position.clone();
+            const startLookAt = controls.target.clone();
+            const duration = 1000; // Animation duration in milliseconds
+            const startTime = performance.now();
+
+            function updateCamera(time) {
+                const elapsed = time - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+
+                // Use an easing function for smooth animation
+                const easeProgress = easeInOutCubic(progress);
+
+                camera.position.lerpVectors(startPosition, targetPosition, easeProgress);
+                controls.target.lerpVectors(startLookAt, targetLookAt, easeProgress);
+                controls.update();
+
+                if (progress < 1) {
+                    requestAnimationFrame(updateCamera);
+                }
+            }
+
+            requestAnimationFrame(updateCamera);
+        }
+
+        // Easing function for smooth animation
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
         function createBoundingSphere(geometry, scale) {
             geometry.computeBoundingSphere();
             const sphere = geometry.boundingSphere;
@@ -561,6 +656,7 @@
                 });
 
                 // Add event listeners for dragging
+                renderer.domElement.addEventListener('dblclick', onDoubleClick, false);
                 renderer.domElement.addEventListener('mousedown', onMouseDown, false);
                 renderer.domElement.addEventListener('mousemove', onMouseMove, false);
                 renderer.domElement.addEventListener('mouseup', onMouseUp, false);
