@@ -55,7 +55,6 @@
         import { OrbitControls } from 'https://jspm.dev/three@0.132.2/examples/jsm/controls/OrbitControls';
         import { STLLoader } from 'https://jspm.dev/three@0.132.2/examples/jsm/loaders/STLLoader';
         import * as CANNON from 'https://jspm.dev/cannon-es@0.20.0';
-        import { LOD } from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.module.js';
 
         const owner = 'abphung';
         const repo = 'abphung.github.io';
@@ -100,9 +99,6 @@
         let isZoomedIn = false;
         let zoomedModel = null;
 
-        const frustum = new THREE.Frustum();
-        const projScreenMatrix = new THREE.Matrix4();
-
         const MAX_VELOCITY = 1500; // Maximum velocity magnitude
         const colorPalette = [
             '#3498db', // Blue
@@ -134,7 +130,7 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color('#f0f4f8'); // Light blue-gray background
             
-            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 3000);
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 5*areaSize);
             camera.position.set(1.5*areaSize, 1.5*areaSize, 1.5*areaSize);
             camera.lookAt(0, 0, 0);
             
@@ -146,7 +142,6 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.25;
             controls.enableZoom = true;
-            controls.addEventListener('change', updateFrustum);
 
             const ambientLight = new THREE.AmbientLight(0x404040);
             scene.add(ambientLight);
@@ -216,12 +211,6 @@
 
             console.log('Scene and physics world initialized');
             animate();
-        }
-
-        function updateFrustum() {
-            camera.updateMatrixWorld();
-            projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-            frustum.setFromProjectionMatrix(projScreenMatrix);
         }
 
         function onMouseDown(event) {
@@ -497,46 +486,30 @@
             loader.load(
                 file.url,
                 (geometry) => {
-                    console.log(`Model loaded successfully: ${file.name}`);
-                    const material = new THREE.MeshPhongMaterial({ 
-                        color: new THREE.Color(getRandomColor()),
-                        specular: 0x111111, 
-                        shininess: 30
-                    });
                     for (let i = 0; i < count; i++) {
-                        const lod = new THREE.LOD();
-
-                        // High detail
-                        const meshHigh = new THREE.Mesh(geometry, material);
-                        meshHigh.scale.set(1, 1, 1);
-
-                        // Medium detail
-                        const geometryMed = geometry.clone().scale(0.5, 0.5, 0.5);
-                        const meshMed = new THREE.Mesh(geometryMed, material);
-
-                        // Low detail
-                        const geometryLow = geometry.clone().scale(0.25, 0.25, 0.25);
-                        const meshLow = new THREE.Mesh(geometryLow, material);
-
-                        lod.addLevel(meshHigh, 0);
-                        lod.addLevel(meshMed, 100);
-                        lod.addLevel(meshLow, 300);
-                        lod.userData.fileName = `${file.name} (${i+1})`;
+                        console.log(`Model loaded successfully: ${file.name}`);
+                        const material = new THREE.MeshPhongMaterial({ 
+                            color: new THREE.Color(getRandomColor()),
+                            specular: 0x111111, 
+                            shininess: 30
+                        });
+                        const mesh = new THREE.Mesh(geometry, material);
+                        mesh.userData.fileName = `${file.name} (${i+1})`;
 
                         geometry.center();
                         geometry.computeBoundingBox();
-                        const box = new THREE.Box3().setFromObject(lod);
+                        const box = new THREE.Box3().setFromObject(mesh);
                         const size = box.getSize(new THREE.Vector3());
 
                         const tallestDimension = Math.max(size.x, size.y, size.z);
                         const scale = 1;
 
-                        lod.scale.set(scale, scale, scale);
-                        lod.rotation.x = -Math.PI / 2;
+                        mesh.scale.set(scale, scale, scale);
+                        mesh.rotation.x = -Math.PI / 2;
 
                         const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, scale);
-                        sphereWireframe.position.copy(lod.position);
-                        sphereWireframe.rotation.copy(lod.rotation);
+                        sphereWireframe.position.copy(mesh.position);
+                        sphereWireframe.rotation.copy(mesh.rotation);
                         sphereWireframe.material.color.setHex(0x4a5568);
                         scene.add(sphereWireframe);
                         sphereWireframes.push(sphereWireframe);
@@ -565,11 +538,11 @@
                         body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
 
                         world.addBody(body);
-                        lod.userData.physicsBody = body;
+                        mesh.userData.physicsBody = body;
                         sphereWireframe.userData.physicsBody = body;
 
-                        scene.add(lod);
-                        loadedModels.push(lod);
+                        scene.add(mesh);
+                        loadedModels.push(mesh);
 
                         console.log(`Model added to scene: ${file.name}`);
                         console.log(`Total models in scene: ${loadedModels.length}`);
@@ -639,7 +612,7 @@
                 loadedModelCount = 0;
 
                 files.forEach((file, index) => {
-                    setTimeout(() => loadSTLModel(file, index, 50), index * 1000); // Reduced delay to 500ms
+                    setTimeout(() => loadSTLModel(file, index, 10), index * 1000); // Reduced delay to 500ms
                 });
 
                 // Add event listeners for dragging
