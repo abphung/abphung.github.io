@@ -55,6 +55,10 @@
         import { OrbitControls } from 'https://jspm.dev/three@0.132.2/examples/jsm/controls/OrbitControls';
         import { STLLoader } from 'https://jspm.dev/three@0.132.2/examples/jsm/loaders/STLLoader';
         import * as CANNON from 'https://jspm.dev/cannon-es@0.20.0';
+        import { SimplifyModifier } from 'https://jspm.dev/three@0.132.2/examples/jsm/modifiers/SimplifyModifier';
+
+        // LOD is part of the main Three.js package, so we don't need to import it separately
+        const { LOD } = THREE;
 
         const owner = 'abphung';
         const repo = 'abphung.github.io';
@@ -99,6 +103,10 @@
         let isZoomedIn = false;
         let zoomedModel = null;
 
+        const frustum = new THREE.Frustum();
+        const projScreenMatrix = new THREE.Matrix4();
+        const simplifyModifier = new SimplifyModifier();
+
         const MAX_VELOCITY = 1500; // Maximum velocity magnitude
         const colorPalette = [
             '#3498db', // Blue
@@ -142,6 +150,7 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.25;
             controls.enableZoom = true;
+            controls.addEventListener('change', updateFrustum);
 
             const ambientLight = new THREE.AmbientLight(0x404040);
             scene.add(ambientLight);
@@ -213,6 +222,12 @@
             animate();
         }
 
+        function updateFrustum() {
+            camera.updateMatrixWorld();
+            projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            frustum.setFromProjectionMatrix(projScreenMatrix);
+        }
+
         function onMouseDown(event) {
             event.preventDefault();
 
@@ -229,33 +244,41 @@
 
             if (intersects.length > 0) {
                 isDragging = true;
-                draggedModel = intersects[0].object;
+                draggedModel = intersects[0].object.parent;
 
                 controls.enabled = false;
 
-                const physicsBody = draggedModel.userData.physicsBody;
-                physicsBody.velocity.set(0, 0, 0);
-                physicsBody.angularVelocity.set(0, 0, 0);
+                if (draggedModel && draggedModel.userData) {
+                    if (draggedModel.userData.physicsBody) {
+                        const physicsBody = draggedModel.userData.physicsBody;
+                        physicsBody.velocity.set(0, 0, 0);
+                        physicsBody.angularVelocity.set(0, 0, 0);
 
-                // Store the radius of the dragged model's bounding sphere
-                draggedModelRadius = physicsBody.shapes[0].radius;
+                        // Store the radius of the dragged model's bounding sphere
+                        draggedModelRadius = physicsBody.shapes[0].radius;
 
-                dragPlane.setFromNormalAndCoplanarPoint(
-                    camera.getWorldDirection(dragPlane.normal),
-                    intersects[0].point
-                );
+                        dragPlane.setFromNormalAndCoplanarPoint(
+                            camera.getWorldDirection(dragPlane.normal),
+                            intersects[0].point
+                        );
 
-                dragPoint.copy(intersects[0].point).sub(draggedModel.position);
+                        dragPoint.copy(intersects[0].point).sub(draggedModel.position);
 
-                // Initialize model positions and time
-                lastModelPosition.copy(draggedModel.position);
-                currentModelPosition.copy(draggedModel.position);
-                lastUpdateTime = performance.now();
+                        // Initialize model positions and time
+                        lastModelPosition.copy(draggedModel.position);
+                        currentModelPosition.copy(draggedModel.position);
+                        lastUpdateTime = performance.now();
+                    } else {
+                        console.error('physicsBody not found in draggedModel.userData', draggedModel, intersects[0]);
+                    }
+                } else {
+                    console.error('Invalid draggedModel or userData in onMouseDown', draggedModel, intersects[0]);
+                }
             }
         }
 
         function onMouseMove(event) {
-            if (isDragging && !isZoomedIn) {
+            if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -299,6 +322,45 @@
             }
         }
 
+        function onMouseUp(event) {
+            if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
+                isDragging = false;
+                const physicsBody = draggedModel.userData.physicsBody;
+                
+                // Apply momentum based on model velocity, but limit it
+                const velocityMultiplier = 1; // Adjust this value to control the momentum
+                let newVelocity = modelVelocity.multiplyScalar(velocityMultiplier);
+                
+                // Limit the velocity magnitude
+                if (newVelocity.length() > MAX_VELOCITY) {
+                    newVelocity.normalize().multiplyScalar(MAX_VELOCITY);
+                }
+                
+                physicsBody.velocity.copy(newVelocity);
+                physicsBody.position.y += 0.01; // Small upward offset on release
+
+                draggedModel = null;
+                draggedModelRadius = 0;
+
+                if (dragJoint) {
+                    world.removeConstraint(dragJoint);
+                    dragJoint = null;
+                }
+            } else if (isDragging) {
+                console.error('Invalid draggedModel or physicsBody in onMouseUp');
+            }
+
+            isDragging = false;
+            draggedModel = null;
+            
+            // Re-enable controls after a short delay
+            setTimeout(() => {
+                controls.enabled = true;
+                controls.saveState();
+                controls.reset();
+            }, 100);
+        }
+
         // New function to handle hover updates
         function updateHover() {
 
@@ -327,43 +389,6 @@
 
         function onMouseOut() {
             hoverTooltip.style.display = 'none';
-        }
-
-        function onMouseUp(event) {
-            if (isDragging && !isZoomedIn) {
-                isDragging = false;
-                const physicsBody = draggedModel.userData.physicsBody;
-                
-                // Apply momentum based on model velocity, but limit it
-                const velocityMultiplier = 1; // Adjust this value to control the momentum
-                let newVelocity = modelVelocity.multiplyScalar(velocityMultiplier);
-                
-                // Limit the velocity magnitude
-                if (newVelocity.length() > MAX_VELOCITY) {
-                    newVelocity.normalize().multiplyScalar(MAX_VELOCITY);
-                }
-                
-                physicsBody.velocity.copy(newVelocity);
-                physicsBody.position.y += 0.01; // Small upward offset on release
-
-                draggedModel = null;
-                draggedModelRadius = 0;
-
-                if (dragJoint) {
-                    world.removeConstraint(dragJoint);
-                    dragJoint = null;
-                }
-            }
-
-            isDragging = false;
-            draggedModel = null;
-            
-            // Re-enable controls after a short delay
-            setTimeout(() => {
-                controls.enabled = true;
-                controls.saveState();
-                controls.reset();
-            }, 100);
         }
 
         function onDoubleClick(event) {
@@ -481,35 +506,63 @@
             return { visual: sphereWireframe, physical: cannonShape, radius: radius };
         }
 
+        function createConfiguredMesh(geometry, material, fileName, detailLevel) {
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.scale.set(1, 1, 1);
+            mesh.userData.fileName = fileName;
+            mesh.userData.detailLevel = detailLevel;
+            return mesh;
+        }
+
         function loadSTLModel(file, index, count = 1) {
             console.log(`Starting to load model: ${file.name}`);
             loader.load(
                 file.url,
                 (geometry) => {
+                    console.log(`Model loaded successfully: ${file.name}`);
+                    const material = new THREE.MeshPhongMaterial({ 
+                        color: new THREE.Color(getRandomColor()),
+                        specular: 0x111111, 
+                        shininess: 30
+                    });
+                    console.log(`geometry.attributes.position.count: ${geometry.attributes.position.count}`);
+                    // Calculate the number of vertices to remove for each LOD level
+                    const highDetailVertices = geometry.attributes.position.count / 3;
+                    const medDetailVertices = Math.floor(highDetailVertices * 0.5);
+                    const lowDetailVertices = Math.floor(highDetailVertices * 0.1);
+
+                    // Create simplified geometries
+                    const geometryMed = geometry//simplifyModifier.modify(geometry, medDetailVertices);
+                    const geometryLow = geometry//simplifyModifier.modify(geometry, lowDetailVertices);
+                    console.log(`Created simplified geometries`);
                     for (let i = 0; i < count; i++) {
-                        console.log(`Model loaded successfully: ${file.name}`);
-                        const material = new THREE.MeshPhongMaterial({ 
-                            color: new THREE.Color(getRandomColor()),
-                            specular: 0x111111, 
-                            shininess: 30
-                        });
-                        const mesh = new THREE.Mesh(geometry, material);
-                        mesh.userData.fileName = `${file.name} (${i+1})`;
+                        const lod = new THREE.LOD();
+
+                        // High detail
+                        const meshHigh = createConfiguredMesh(geometry, material, `${file.name} (${i+1})`, 'high');
+
+                        // Medium detail
+                        const meshMed = createConfiguredMesh(geometryMed, material, `${file.name} (${i+1})`, 'medium');
+
+                        // Low detail
+                        const meshLow = createConfiguredMesh(geometryLow, material, `${file.name} (${i+1})`, 'low');
+
+                        lod.addLevel(meshHigh, 0);
+                        lod.addLevel(meshMed, 100);
+                        lod.addLevel(meshLow, 300);
 
                         geometry.center();
                         geometry.computeBoundingBox();
-                        const box = new THREE.Box3().setFromObject(mesh);
+                        const box = new THREE.Box3().setFromObject(lod);
                         const size = box.getSize(new THREE.Vector3());
 
                         const tallestDimension = Math.max(size.x, size.y, size.z);
-                        const scale = 1;
 
-                        mesh.scale.set(scale, scale, scale);
-                        mesh.rotation.x = -Math.PI / 2;
+                        lod.rotation.x = -Math.PI / 2;
 
-                        const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, scale);
-                        sphereWireframe.position.copy(mesh.position);
-                        sphereWireframe.rotation.copy(mesh.rotation);
+                        const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, 1);
+                        sphereWireframe.position.copy(lod.position);
+                        sphereWireframe.rotation.copy(lod.rotation);
                         sphereWireframe.material.color.setHex(0x4a5568);
                         scene.add(sphereWireframe);
                         sphereWireframes.push(sphereWireframe);
@@ -538,11 +591,13 @@
                         body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
 
                         world.addBody(body);
-                        mesh.userData.physicsBody = body;
                         sphereWireframe.userData.physicsBody = body;
 
-                        scene.add(mesh);
-                        loadedModels.push(mesh);
+                        lod.userData.physicsBody = body;
+                        console.log(`Physics body set for model: ${file.name}`, lod.userData);
+
+                        scene.add(lod);
+                        loadedModels.push(lod);
 
                         console.log(`Model added to scene: ${file.name}`);
                         console.log(`Total models in scene: ${loadedModels.length}`);
@@ -569,15 +624,35 @@
                 console.error('Error in physics simulation step:', error);
             }
             
+            updateFrustum();
+
             for (let i = 0; i < loadedModels.length; i++) {
-                if (loadedModels[i] && loadedModels[i].userData.physicsBody) {
-                    loadedModels[i].position.copy(loadedModels[i].userData.physicsBody.position);
-                    loadedModels[i].quaternion.copy(loadedModels[i].userData.physicsBody.quaternion);
-                    
-                    if (sphereWireframes[i]) {
-                        sphereWireframes[i].position.copy(loadedModels[i].position);
-                        sphereWireframes[i].quaternion.copy(loadedModels[i].quaternion);
+                const lod = loadedModels[i];
+                if (lod && lod.userData) {
+                    if (lod.userData.physicsBody) {
+                        const physicsBody = lod.userData.physicsBody;
+                        lod.position.copy(physicsBody.position);
+                        lod.quaternion.copy(physicsBody.quaternion);
+                        
+                        // Update sphere wireframe position
+                        if (sphereWireframes[i]) {
+                            sphereWireframes[i].position.copy(physicsBody.position);
+                            sphereWireframes[i].quaternion.copy(physicsBody.quaternion);
+                        }
+                        
+                        // Frustum culling
+                        if (frustum.containsPoint(lod.position)) {
+                            if (!lod.visible) lod.visible = true;
+                            // Update LOD
+                            lod.update(camera);
+                        } else {
+                            if (lod.visible) lod.visible = false;
+                        }
+                    } else {
+                        console.error(`physicsBody not found for model at index ${i}`, lod);
                     }
+                } else {
+                    console.error(`Invalid lod at index ${i}`, lod);
                 }
             }
 
@@ -585,7 +660,7 @@
                 controls.update();
             }
 
-            updateHover(); // Call updateHover in the animation loop
+            updateHover();
 
             renderer.render(scene, camera);
         }
@@ -612,7 +687,7 @@
                 loadedModelCount = 0;
 
                 files.forEach((file, index) => {
-                    setTimeout(() => loadSTLModel(file, index, 10), index * 1000); // Reduced delay to 500ms
+                    setTimeout(() => loadSTLModel(file, index, 1), index * 1000); // Reduced delay to 500ms
                 });
 
                 // Add event listeners for dragging
