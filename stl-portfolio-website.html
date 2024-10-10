@@ -55,10 +55,6 @@
         import { OrbitControls } from 'https://jspm.dev/three@0.132.2/examples/jsm/controls/OrbitControls';
         import { STLLoader } from 'https://jspm.dev/three@0.132.2/examples/jsm/loaders/STLLoader';
         import * as CANNON from 'https://jspm.dev/cannon-es@0.20.0';
-        import { SimplifyModifier } from 'https://jspm.dev/three@0.132.2/examples/jsm/modifiers/SimplifyModifier';
-
-        // LOD is part of the main Three.js package, so we don't need to import it separately
-        const { LOD } = THREE;
 
         const owner = 'abphung';
         const repo = 'abphung.github.io';
@@ -72,7 +68,7 @@
         let sphereWireframes = [];
 
         // Define the new area size
-        const areaSize = 1200; // Half of the previous 100
+        const areaSize = 500; // Half of the previous 100
 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -105,7 +101,20 @@
 
         const frustum = new THREE.Frustum();
         const projScreenMatrix = new THREE.Matrix4();
-        const simplifyModifier = new SimplifyModifier();
+
+        let fadeOutObjects = [];
+        let fadeInObjects = [];
+        const fadeDuration = 1000; // Duration of fade effect in milliseconds
+
+        let cameraQuat = new THREE.Quaternion();
+        let targetQuat = new THREE.Quaternion();
+
+        let worldObjects = [];
+
+        let forwardArrow, upArrow;
+
+        let upIndicatorArrow;
+        const upIndicatorSize = 50; // Size of the indicator in pixels
 
         const MAX_VELOCITY = 1500; // Maximum velocity magnitude
         const colorPalette = [
@@ -132,6 +141,22 @@
                            name: file.name,
                            url: file.download_url
                        }));
+        }
+
+        function createUpIndicator() {
+            const arrowGeometry = new THREE.ConeGeometry(5, 20, 32);
+            const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 }); // Yellow color
+            const arrowMesh = new THREE.Mesh(arrowGeometry, arrowMaterial);
+            
+            // Create a scene for the indicator
+            const indicatorScene = new THREE.Scene();
+            indicatorScene.add(arrowMesh);
+            
+            // Create an orthographic camera for the indicator
+            const indicatorCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+            indicatorCamera.position.set(0, 0, 5);
+            
+            return { scene: indicatorScene, camera: indicatorCamera, mesh: arrowMesh };
         }
 
         function initScene(container) {
@@ -188,6 +213,7 @@
             planeMesh.rotation.x = Math.PI / 2;
             planeMesh.position.y = 0;
             scene.add(planeMesh);
+            worldObjects.push(planeMesh);
 
             // Create borders
             const borderHeight = areaSize/3;
@@ -200,6 +226,7 @@
                 borderMesh.position.set(x, borderHeight / 2, z);
                 borderMesh.rotation.y = rotationY;
                 scene.add(borderMesh);
+                worldObjects.push(borderMesh);
 
                 const borderShape = new CANNON.Box(new CANNON.Vec3(areaSize, borderHeight / 2, borderThickness / 2));
                 const borderBody = new CANNON.Body({ mass: 0 });
@@ -214,6 +241,8 @@
             createBorder(0, -areaSize, 0);
             createBorder(areaSize, 0, Math.PI / 2);
             createBorder(-areaSize, 0, Math.PI / 2);
+
+            upIndicatorArrow = createUpIndicator();
 
             // Create a drag plane
             dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -244,7 +273,7 @@
 
             if (intersects.length > 0) {
                 isDragging = true;
-                draggedModel = intersects[0].object.parent;
+                draggedModel = intersects[0].object;
 
                 controls.enabled = false;
 
@@ -363,6 +392,7 @@
 
         // New function to handle hover updates
         function updateHover() {
+            if (isZoomedIn) return;
 
             if (!isHoverUpdatePending) return;
             
@@ -376,10 +406,9 @@
             const intersects = picker.intersectObjects(loadedModels, true);
 
             if (intersects.length > 0) {
-
                 const intersectedObject = intersects[0].object;
                 const modelName = intersectedObject.userData.fileName || 'Unknown Model';
-                console.log(`hovering over model: ${modelName}`)
+                console.log(`hovering over model: ${modelName}`, intersectedObject.userData, loadedModels)
                 hoverTooltip.textContent = modelName;
                 hoverTooltip.style.display = 'block';
             } else {
@@ -418,6 +447,20 @@
             }
         }
 
+        function createArrowHelper(direction, color, length = 50) {
+            const arrow = new THREE.ArrowHelper(
+                direction.normalize(),
+                new THREE.Vector3(0, 0, 0),
+                length,
+                color,
+                0.2 * length,
+                0.1 * length
+            );
+            arrow.visible = false;
+            scene.add(arrow);
+            return arrow;
+        }
+
         function zoomIn(model) {
             // Store current camera state
             previousCameraState.position.copy(camera.position);
@@ -433,14 +476,57 @@
             boundingSphere.applyMatrix4(model.matrixWorld);
 
             // Calculate the ideal camera position
-            const direction = camera.position.clone().sub(controls.target).normalize();
-            const distance = boundingSphere.radius * 2.5;
-            const newCameraPosition = boundingSphere.center.clone().add(direction.multiplyScalar(distance));
+            const idealDistance = boundingSphere.radius * 2.5;
+            
+            // Get the model's forward direction (negative Z-axis in model space)
+            const modelForward = new THREE.Vector3(1, 1, 1).applyQuaternion(model.quaternion);
+            modelForward.normalize();
+
+            // Calculate the new camera position
+            const newCameraPosition = new THREE.Vector3().addVectors(boundingSphere.center, modelForward.multiplyScalar(idealDistance));
+            
+            // Get the model's up vector (Y-axis in model space)
+            const modelUp = new THREE.Vector3(0, 0, 1).applyQuaternion(model.quaternion);
+
+            if (!forwardArrow) {
+                forwardArrow = createArrowHelper(modelForward, 0xff0000); // Red for forward
+            }
+            if (!upArrow) {
+                upArrow = createArrowHelper(modelUp, 0x00ff00); // Green for up
+            }
+
+            // Position arrows at the center of the model
+            const modelCenter = boundingSphere.center;
+            forwardArrow.position.copy(modelCenter);
+            upArrow.position.copy(modelCenter);
+
+            // Set arrow directions
+            forwardArrow.setDirection(modelForward);
+            upArrow.setDirection(modelUp);
+
+            // Make arrows visible
+            forwardArrow.visible = true;
+            upArrow.visible = true;
+
+            // Calculate the rotation to look at the model
+            targetQuat.setFromRotationMatrix(
+                new THREE.Matrix4().lookAt(newCameraPosition, boundingSphere.center, modelUp)
+            );
+            console.log(model.quaternion, modelForward, modelUp)
+            // Prepare objects for fading
+            fadeOutObjects = loadedModels.filter(obj => obj !== model);
+            fadeInObjects = [model];
+
+            // Start fading out objects
+            fadeObjects(fadeOutObjects, 1, 0);
+            fadeObjects(sphereWireframes, 1, 0)
+            fadeObjects(worldObjects, 1, 0);
 
             // Animate camera movement
-            animateCamera(newCameraPosition, boundingSphere.center, () => {
+            animateCamera(newCameraPosition, boundingSphere.center, targetQuat, () => {
                 // After animation, update controls
                 controls.target.copy(boundingSphere.center);
+                controls.up.copy(modelUp);
                 controls.update();
             });
         }
@@ -449,18 +535,93 @@
             isZoomedIn = false;
             zoomedModel = null;
 
+            if (forwardArrow) forwardArrow.visible = false;
+            if (upArrow) upArrow.visible = false;
+
+            // Prepare objects for fading
+            fadeInObjects = loadedModels;
+            fadeOutObjects = [zoomedModel];
+
+            // Start fading in objects
+            fadeObjects(fadeInObjects, 0, 1);
+            fadeObjects(sphereWireframes, 0, 1)
+            fadeObjects(worldObjects, 0, 1);
+
             // Animate camera movement back to previous position
             animateCamera(previousCameraState.position, previousCameraState.target, () => {
                 // After animation, update controls
                 controls.target.copy(previousCameraState.target);
+                controls.up.set(0, 1, 0);
                 controls.update();
             });
         }
 
-        function animateCamera(targetPosition, targetLookAt, callback) {
+        function fadeObjects(objects, startOpacity, endOpacity) {
+            const startTime = performance.now();
+
+            function updateFade() {
+                const currentTime = performance.now();
+                const elapsedTime = currentTime - startTime;
+                const progress = Math.min(elapsedTime / fadeDuration, 1);
+
+                objects.forEach(obj => {
+                    if (obj.material) {
+                        if (!obj.material.transparent) {
+                            obj.material.transparent = true;
+                            obj.material.needsUpdate = true;
+                        }
+                        obj.material.opacity = THREE.MathUtils.lerp(startOpacity, endOpacity, progress);
+                    }
+                    if (obj.children) {
+                        obj.children.forEach(child => {
+                            if (child.material) {
+                                if (!child.material.transparent) {
+                                    child.material.transparent = true;
+                                    child.material.needsUpdate = true;
+                                }
+                                child.material.opacity = THREE.MathUtils.lerp(startOpacity, endOpacity, progress);
+                            }
+                        });
+                    }
+                });
+
+                if (progress < 1) {
+                    requestAnimationFrame(updateFade);
+                } else {
+                    // If fading out, hide the objects completely
+                    if (endOpacity === 0) {
+                        objects.forEach(obj => {
+                            obj.visible = false;
+                            if (obj.children) {
+                                obj.children.forEach(child => {
+                                    child.visible = false;
+                                });
+                            }
+                        });
+                    }
+                }
+            }
+
+            // If fading in, make sure objects are visible
+            if (endOpacity > 0) {
+                objects.forEach(obj => {
+                    obj.visible = true;
+                    if (obj.children) {
+                        obj.children.forEach(child => {
+                            child.visible = true;
+                        });
+                    }
+                });
+            }
+
+            updateFade();
+        }
+
+        function animateCamera(targetPosition, targetLookAt, targetQuaternion, callback) {
             const startPosition = camera.position.clone();
             const startLookAt = controls.target.clone();
-            const duration = 1000; // Animation duration in milliseconds
+            const startQuaternion = camera.quaternion.clone();
+            const duration = 2000; // Animation duration in milliseconds
             const startTime = performance.now();
 
             function updateCamera(time) {
@@ -472,6 +633,12 @@
 
                 camera.position.lerpVectors(startPosition, targetPosition, easeProgress);
                 controls.target.lerpVectors(startLookAt, targetLookAt, easeProgress);
+                
+                camera.quaternion.slerpQuaternions(startQuaternion, targetQuaternion, easeProgress)
+                // Smoothly interpolate the camera's quaternion
+                // THREE.Quaternion.slerp(startQuaternion, targetQuaternion, camera.quaternion, easeProgress);
+                
+                camera.updateProjectionMatrix();
                 controls.update();
 
                 if (progress < 1) {
@@ -493,25 +660,20 @@
             geometry.computeBoundingSphere();
             const sphere = geometry.boundingSphere;
             const radius = sphere.radius * scale;
-
+            console.log(`sphere radius ${radius}`);
             const sphereGeometry = new THREE.SphereGeometry(radius, 16, 16);
             const wireframe = new THREE.WireframeGeometry(sphereGeometry);
             const sphereWireframe = new THREE.LineSegments(wireframe);
-            sphereWireframe.material.color.setHex(0xffffff);
-            sphereWireframe.material.opacity = 0.25;
-            sphereWireframe.material.transparent = true;
+            sphereWireframe.material = new THREE.LineBasicMaterial({
+                color: 0x4a5568,
+                linewidth: 1,  // Set to 1 for thinnest possible line
+                opacity: 1,
+                transparent: true
+            });
 
             const cannonShape = new CANNON.Sphere(radius);
 
             return { visual: sphereWireframe, physical: cannonShape, radius: radius };
-        }
-
-        function createConfiguredMesh(geometry, material, fileName, detailLevel) {
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.scale.set(1, 1, 1);
-            mesh.userData.fileName = fileName;
-            mesh.userData.detailLevel = detailLevel;
-            return mesh;
         }
 
         function loadSTLModel(file, index, count = 1) {
@@ -526,43 +688,23 @@
                         shininess: 30
                     });
                     console.log(`geometry.attributes.position.count: ${geometry.attributes.position.count}`);
-                    // Calculate the number of vertices to remove for each LOD level
-                    const highDetailVertices = geometry.attributes.position.count / 3;
-                    const medDetailVertices = Math.floor(highDetailVertices * 0.5);
-                    const lowDetailVertices = Math.floor(highDetailVertices * 0.1);
 
-                    // Create simplified geometries
-                    const geometryMed = geometry//simplifyModifier.modify(geometry, medDetailVertices);
-                    const geometryLow = geometry//simplifyModifier.modify(geometry, lowDetailVertices);
-                    console.log(`Created simplified geometries`);
                     for (let i = 0; i < count; i++) {
-                        const lod = new THREE.LOD();
-
-                        // High detail
-                        const meshHigh = createConfiguredMesh(geometry, material, `${file.name} (${i+1})`, 'high');
-
-                        // Medium detail
-                        const meshMed = createConfiguredMesh(geometryMed, material, `${file.name} (${i+1})`, 'medium');
-
-                        // Low detail
-                        const meshLow = createConfiguredMesh(geometryLow, material, `${file.name} (${i+1})`, 'low');
-
-                        lod.addLevel(meshHigh, 0);
-                        lod.addLevel(meshMed, 100);
-                        lod.addLevel(meshLow, 300);
+                        const mesh = new THREE.Mesh(geometry, material);
+                        mesh.userData.fileName = `${file.name} (${i+1})`;
 
                         geometry.center();
                         geometry.computeBoundingBox();
-                        const box = new THREE.Box3().setFromObject(lod);
+                        const box = new THREE.Box3().setFromObject(mesh);
                         const size = box.getSize(new THREE.Vector3());
 
                         const tallestDimension = Math.max(size.x, size.y, size.z);
 
-                        lod.rotation.x = -Math.PI / 2;
+                        mesh.rotation.x = -Math.PI / 2;
 
                         const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, 1);
-                        sphereWireframe.position.copy(lod.position);
-                        sphereWireframe.rotation.copy(lod.rotation);
+                        sphereWireframe.position.copy(mesh.position);
+                        sphereWireframe.rotation.copy(mesh.rotation);
                         sphereWireframe.material.color.setHex(0x4a5568);
                         scene.add(sphereWireframe);
                         sphereWireframes.push(sphereWireframe);
@@ -588,16 +730,16 @@
                         );
                         body.velocity.copy(initialVelocity);
 
-                        body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-
+                        //body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+                        console.log(`${body.quaternion}`)
                         world.addBody(body);
                         sphereWireframe.userData.physicsBody = body;
 
-                        lod.userData.physicsBody = body;
-                        console.log(`Physics body set for model: ${file.name}`, lod.userData);
+                        mesh.userData.physicsBody = body;
+                        console.log(`Physics body set for model: ${file.name}`, mesh.userData);
 
-                        scene.add(lod);
-                        loadedModels.push(lod);
+                        scene.add(mesh);
+                        loadedModels.push(mesh);
 
                         console.log(`Model added to scene: ${file.name}`);
                         console.log(`Total models in scene: ${loadedModels.length}`);
@@ -626,33 +768,36 @@
             
             updateFrustum();
 
+            if (forwardArrow && forwardArrow.visible && zoomedModel) {
+                forwardArrow.position.copy(zoomedModel.position);
+                const modelForward = new THREE.Vector3(1, 1, 1).applyQuaternion(zoomedModel.quaternion);
+                forwardArrow.setDirection(modelForward.normalize());
+            }
+            if (upArrow && upArrow.visible && zoomedModel) {
+                upArrow.position.copy(zoomedModel.position);
+                const modelUp = new THREE.Vector3(0, 0, 1).applyQuaternion(zoomedModel.quaternion);
+                upArrow.setDirection(modelUp.normalize());
+            }
+
             for (let i = 0; i < loadedModels.length; i++) {
-                const lod = loadedModels[i];
-                if (lod && lod.userData) {
-                    if (lod.userData.physicsBody) {
-                        const physicsBody = lod.userData.physicsBody;
-                        lod.position.copy(physicsBody.position);
-                        lod.quaternion.copy(physicsBody.quaternion);
-                        
-                        // Update sphere wireframe position
-                        if (sphereWireframes[i]) {
-                            sphereWireframes[i].position.copy(physicsBody.position);
-                            sphereWireframes[i].quaternion.copy(physicsBody.quaternion);
-                        }
-                        
-                        // Frustum culling
-                        if (frustum.containsPoint(lod.position)) {
-                            if (!lod.visible) lod.visible = true;
-                            // Update LOD
-                            lod.update(camera);
-                        } else {
-                            if (lod.visible) lod.visible = false;
-                        }
-                    } else {
-                        console.error(`physicsBody not found for model at index ${i}`, lod);
+                const mesh = loadedModels[i];
+                if (mesh && mesh.userData && !isZoomedIn) {
+                    const physicsBody = mesh.userData.physicsBody;
+                    mesh.position.copy(physicsBody.position);
+                    mesh.quaternion.copy(physicsBody.quaternion);
+                    
+                    // Update sphere wireframe position
+                    if (sphereWireframes[i]) {
+                        sphereWireframes[i].position.copy(physicsBody.position);
+                        sphereWireframes[i].quaternion.copy(physicsBody.quaternion);
                     }
-                } else {
-                    console.error(`Invalid lod at index ${i}`, lod);
+                    
+                    // Frustum culling
+                    if (frustum.containsPoint(mesh.position)) {
+                        if (!mesh.visible) mesh.visible = true;
+                    } else {
+                        if (mesh.visible) mesh.visible = false;
+                    }
                 }
             }
 
@@ -662,14 +807,36 @@
 
             updateHover();
 
+            updateUpIndicator();
+
+            // Render the main scene
+            renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
             renderer.render(scene, camera);
+
+            // Render the up indicator
+            // renderer.clearDepth();
+            // renderer.setViewport(window.innerWidth - upIndicatorSize - 10, window.innerHeight - upIndicatorSize - 10, upIndicatorSize, upIndicatorSize);
+            // renderer.render(upIndicatorArrow.scene, upIndicatorArrow.camera);
         }
 
+        function updateUpIndicator() {
+            // Get the camera's up vector in world space
+            const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+            
+            // Calculate the rotation to align the arrow with the camera's up vector
+            const arrowQuaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), cameraUp);
+            upIndicatorArrow.mesh.quaternion.copy(arrowQuaternion);
+        }
+
+        // Modify your window resize handler
         function handleResize() {
             const container = document.getElementById('stl-viewer');
             camera.aspect = container.clientWidth / container.clientHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(container.clientWidth, container.clientHeight);
+            
+            // Update the up indicator size and position
+            renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
         }
 
         async function initGallery() {
