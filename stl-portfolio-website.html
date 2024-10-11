@@ -248,6 +248,7 @@
         }
 
         function onTouchEnd(event) {
+            console.log("touch end")
             const currentTime = new Date().getTime();
             const tapLength = currentTime - lastTap;
             event.preventDefault();
@@ -442,6 +443,9 @@
                     // If already zoomed in on this model, zoom out
                     zoomOut();
                 } else {
+                    const physicsBody = intersectedObject.userData.physicsBody;
+                    physicsBody.velocity.set(0, 0, 0);
+                    physicsBody.angularVelocity.set(0, 0, 0);
                     // Zoom in on the double-clicked model
                     zoomIn(intersectedObject);
                 }
@@ -598,8 +602,7 @@
                     const startQuaternion = zoomedModel.quaternion.clone();
                     const targetQuaternion = new THREE.Quaternion();
                     targetQuaternion.setFromAxisAngle( new THREE.Vector3( -1, 0, 0 ), Math.PI / 2 );
-                    zoomedModel.quaternion.slerpQuaternions(startQuaternion, targetQuaternion, easeProgress)
-                    console.log(zoomedModel.userData.physicsBody.quaternion);
+                    zoomedModel.quaternion.slerpQuaternions(startQuaternion, targetQuaternion, easeProgress);
                     zoomedModel.userData.physicsBody.quaternion.copy(zoomedModel.quaternion);
                 }
                 
