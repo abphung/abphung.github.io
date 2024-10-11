@@ -501,12 +501,9 @@
         }
 
         function zoomOut() {
+            fadeInObjects = loadedModels.filter(obj => obj !== zoomedModel);
             isZoomedIn = false;
             zoomedModel = null;
-
-            // Prepare objects for fading
-            fadeInObjects = loadedModels;
-            fadeOutObjects = [zoomedModel];
 
             // Start fading in objects
             fadeObjects(fadeInObjects, 0, 1);
@@ -602,6 +599,8 @@
                     const targetQuaternion = new THREE.Quaternion();
                     targetQuaternion.setFromAxisAngle( new THREE.Vector3( -1, 0, 0 ), Math.PI / 2 );
                     zoomedModel.quaternion.slerpQuaternions(startQuaternion, targetQuaternion, easeProgress)
+                    console.log(zoomedModel.userData.physicsBody.quaternion);
+                    zoomedModel.userData.physicsBody.quaternion.copy(zoomedModel.quaternion);
                 }
                 
                 camera.updateProjectionMatrix();
