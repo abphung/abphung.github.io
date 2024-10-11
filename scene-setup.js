@@ -45,7 +45,58 @@ export function initScene(container) {
 }
 
 function createFloorAndBorders() {
-    // ... (Code for creating floor and borders)
+    // Create floor
+    const planeShape = new CANNON.Plane();
+    const planeBody = new CANNON.Body({ mass: 0 });
+    planeBody.addShape(planeShape);
+    planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+    world.addBody(planeBody);
+
+    // Reduce ground friction
+    const groundMaterial = new CANNON.Material('ground');
+    planeBody.material = groundMaterial;
+
+    const objectMaterial = new CANNON.Material('object');
+    const groundObjectContact = new CANNON.ContactMaterial(groundMaterial, objectMaterial, {
+        friction: 0.2, // Reduced friction (default is 0.3)
+        restitution: 0.3 // Slight increase in bounciness
+    });
+    world.addContactMaterial(groundObjectContact);
+
+    const planeGeometry = new THREE.PlaneGeometry(areaSize * 2, areaSize * 2);
+    const planeMaterial = new THREE.MeshBasicMaterial({ color: '#e2e8f0', side: THREE.DoubleSide });
+    const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+    planeMesh.rotation.x = Math.PI / 2;
+    planeMesh.position.y = 0;
+    scene.add(planeMesh);
+    worldObjects.push(planeMesh);
+
+    // Create borders
+    const borderHeight = areaSize/3;
+    const borderThickness = areaSize/100;
+    const borderGeometry = new THREE.BoxGeometry(areaSize * 2, borderHeight, borderThickness);
+    const borderMaterial = new THREE.MeshBasicMaterial({ color: '#4a5568' });
+
+    const createBorder = (x, z, rotationY) => {
+        const borderMesh = new THREE.Mesh(borderGeometry, borderMaterial);
+        borderMesh.position.set(x, borderHeight / 2, z);
+        borderMesh.rotation.y = rotationY;
+        scene.add(borderMesh);
+        worldObjects.push(borderMesh);
+
+        const borderShape = new CANNON.Box(new CANNON.Vec3(areaSize, borderHeight / 2, borderThickness / 2));
+        const borderBody = new CANNON.Body({ mass: 0 });
+        borderBody.addShape(borderShape);
+        borderBody.position.set(x, borderHeight / 2, z);
+        borderBody.quaternion.setFromEuler(0, rotationY, 0);
+        world.addBody(borderBody);
+    };
+
+    // Create four borders
+    createBorder(0, areaSize, 0);
+    createBorder(0, -areaSize, 0);
+    createBorder(areaSize, 0, Math.PI / 2);
+    createBorder(-areaSize, 0, Math.PI / 2);
 }
 
 export function animate() {
