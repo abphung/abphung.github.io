@@ -110,6 +110,9 @@
         let worldObjects = [];
 
         let lastTap = 0;
+        let debugOverlay;
+        let lastTouchTimestamp = 0;
+        let touchCount = 0;
 
         const MAX_VELOCITY = 1500; // Maximum velocity magnitude
         const colorPalette = [
@@ -125,6 +128,27 @@
 
         function getRandomColor() {
             return colorPalette[Math.floor(Math.random() * colorPalette.length)];
+        }
+
+        function createDebugOverlay() {
+            debugOverlay = document.createElement('div');
+            debugOverlay.style.position = 'fixed';
+            debugOverlay.style.top = '10px';
+            debugOverlay.style.left = '10px';
+            debugOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            debugOverlay.style.color = 'white';
+            debugOverlay.style.padding = '10px';
+            debugOverlay.style.borderRadius = '5px';
+            debugOverlay.style.fontFamily = 'monospace';
+            debugOverlay.style.fontSize = '12px';
+            debugOverlay.style.zIndex = '1000';
+            document.body.appendChild(debugOverlay);
+        }
+
+        function updateDebugOverlay(message) {
+            if (debugOverlay) {
+                debugOverlay.innerHTML = message;
+            }
         }
 
         async function fetchSTLFiles() {
@@ -236,31 +260,38 @@
 
         function onTouchStart(event) {
             event.preventDefault();
-            if (event.touches.length === 1) {
-                handleStart(event.touches[0]);
+            const touch = event.touches[0];
+            const currentTime = new Date().getTime();
+            
+            touchCount++;
+            if (currentTime - lastTouchTimestamp < 300) {
+                onDoubleTap(touch);
             }
+            lastTouchTimestamp = currentTime;
+
+            handleStart(touch);
+            updateDebugOverlay(`Touch Start<br>X: ${touch.clientX}<br>Y: ${touch.clientY}<br>Count: ${touchCount}`);
         }
 
         function onTouchMove(event) {
             event.preventDefault();
             if (event.touches.length === 1) {
-                handleMove(event.touches[0]);
+                const touch = event.touches[0];
+                handleMove(touch);
+                updateDebugOverlay(`Touch Move<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
             }
         }
 
         function onTouchEnd(event) {
-            console.log("touch end")
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
             event.preventDefault();
-            if (tapLength < 500 && tapLength > 0) {
-                handleDoubleClick(event);
-            }
-            else {
-                handleEnd(event.changedTouches[0]);
-            }
+            const touch = event.changedTouches[0];
+            handleEnd(touch);
+            updateDebugOverlay(`Touch End<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
+        }
 
-            lastTap = currentTime;
+        function onDoubleTap(event) {
+            updateDebugOverlay('Double Tap Detected');
+            handleDoubleClick(event);
         }
 
         function handleStart(event) {
@@ -440,20 +471,17 @@
 
             if (intersects.length > 0) {
                 const intersectedObject = intersects[0].object;
-
+                updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
                 if (isZoomedIn && intersectedObject === zoomedModel) {
-                    // If already zoomed in on this model, zoom out
                     zoomOut();
                 } else {
-                    const physicsBody = intersectedObject.userData.physicsBody;
-                    physicsBody.velocity.set(0, 0, 0);
-                    physicsBody.angularVelocity.set(0, 0, 0);
-                    // Zoom in on the double-clicked model
                     zoomIn(intersectedObject);
                 }
             } else if (isZoomedIn) {
-                // If double-clicked outside any model while zoomed in, zoom out
+                updateDebugOverlay('Double Click<br>Zooming Out');
                 zoomOut();
+            } else {
+                updateDebugOverlay('Double Click<br>No Object Intersected');
             }
         }
 
@@ -472,6 +500,7 @@
         }
 
         function zoomIn(model) {
+            updateDebugOverlay(`Zooming In<br>Model: ${model.userData.fileName}`);
             // Store current camera state
             previousCameraState.position.copy(camera.position);
             previousCameraState.target.copy(controls.target);
@@ -507,6 +536,7 @@
         }
 
         function zoomOut() {
+            updateDebugOverlay('Zooming Out');
             fadeInObjects = loadedModels.filter(obj => obj !== zoomedModel);
             isZoomedIn = false;
             zoomedModel = null;
@@ -783,6 +813,8 @@
 
                 hoverTooltip = document.getElementById('hoverTooltip');
 
+                createDebugOverlay();
+                
                 initScene(container);
 
                 totalModelsToLoad = files.length;
