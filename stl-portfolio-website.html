@@ -235,7 +235,6 @@
         }
 
         function onTouchStart(event) {
-            scene.background = new THREE.Color(getRandomColor());
             event.preventDefault();
             if (event.touches.length === 1) {
                 handleStart(event.touches[0]);
@@ -428,6 +427,7 @@
         }
 
         function handleDoubleClick(event) {
+            scene.background = new THREE.Color(getRandomColor());
             event.preventDefault();
 
             const rect = renderer.domElement.getBoundingClientRect();
