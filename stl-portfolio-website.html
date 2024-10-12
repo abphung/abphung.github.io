@@ -90,7 +90,7 @@
         const picker = new THREE.Raycaster();
         let isHoverUpdatePending = false;
         let lastHoverUpdateTime = 0;
-        const HOVER_UPDATE_INTERVAL = 100;
+        const HOVER_UPDATE_INTERVAL = 2000;
 
         let previousCameraState = {
             position: new THREE.Vector3(),
@@ -308,34 +308,34 @@
                     draggedModel = intersects[0].object;
 
                     updateDebugOverlay(`Controls Disabled`);
-                    // controls.enabled = false;
+                    controls.enabled = false;
 
-                    // if (draggedModel && draggedModel.userData) {
-                    //     if (draggedModel.userData.physicsBody) {
-                    //         const physicsBody = draggedModel.userData.physicsBody;
-                    //         physicsBody.velocity.set(0, 0, 0);
-                    //         physicsBody.angularVelocity.set(0, 0, 0);
+                    if (draggedModel && draggedModel.userData) {
+                        if (draggedModel.userData.physicsBody) {
+                            const physicsBody = draggedModel.userData.physicsBody;
+                            physicsBody.velocity.set(0, 0, 0);
+                            physicsBody.angularVelocity.set(0, 0, 0);
 
-                    //         // Store the radius of the dragged model's bounding sphere
-                    //         draggedModelRadius = physicsBody.shapes[0].radius;
+                            // Store the radius of the dragged model's bounding sphere
+                            draggedModelRadius = physicsBody.shapes[0].radius;
 
-                    //         dragPlane.setFromNormalAndCoplanarPoint(
-                    //             camera.getWorldDirection(dragPlane.normal),
-                    //             intersects[0].point
-                    //         );
+                            dragPlane.setFromNormalAndCoplanarPoint(
+                                camera.getWorldDirection(dragPlane.normal),
+                                intersects[0].point
+                            );
 
-                    //         dragPoint.copy(intersects[0].point).sub(draggedModel.position);
+                            dragPoint.copy(intersects[0].point).sub(draggedModel.position);
 
-                    //         // Initialize model positions and time
-                    //         lastModelPosition.copy(draggedModel.position);
-                    //         currentModelPosition.copy(draggedModel.position);
-                    //         lastUpdateTime = performance.now();
-                    //     } else {
-                    //         console.error('physicsBody not found in draggedModel.userData', draggedModel, intersects[0]);
-                    //     }
-                    // } else {
-                    //     console.error('Invalid draggedModel or userData in onMouseDown', draggedModel, intersects[0]);
-                    // }
+                            // Initialize model positions and time
+                            lastModelPosition.copy(draggedModel.position);
+                            currentModelPosition.copy(draggedModel.position);
+                            lastUpdateTime = performance.now();
+                        } else {
+                            console.error('physicsBody not found in draggedModel.userData', draggedModel, intersects[0]);
+                        }
+                    } else {
+                        console.error('Invalid draggedModel or userData in onMouseDown', draggedModel, intersects[0]);
+                    }
                 }
             } catch (error) {
                 updateDebugOverlay(`${error}`);
@@ -424,10 +424,8 @@
                 setTimeout(() => {
                     updateDebugOverlay(`Controls Enabled`);
                     controls.enabled = true;
-                    if (event.detail == 1){
-                        controls.saveState();
-                        controls.reset();
-                    }
+                    controls.saveState();
+                    controls.reset();
                 }, 100);
             } catch (error) {
                 updateDebugOverlay(`${error}`);
@@ -797,9 +795,7 @@
                 }
             }
 
-            if (!isDragging) {
-                controls.update();
-            }
+            controls.update();
 
             updateHover();
 
