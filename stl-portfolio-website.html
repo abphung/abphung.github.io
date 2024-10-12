@@ -286,7 +286,7 @@
             event.preventDefault();
             const touch = event.changedTouches[0];
             handleEnd(touch);
-            updateDebugOverlay(`Touch End<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
+            //updateDebugOverlay(`Touch End<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
         }
 
         function onDoubleTap(event) {
@@ -458,30 +458,34 @@
         }
 
         function handleDoubleClick(event) {
-            scene.background = new THREE.Color(getRandomColor());
-            event.preventDefault();
+            try {
+                scene.background = new THREE.Color(getRandomColor());
+                event.preventDefault();
 
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-            raycaster.setFromCamera(mouse, camera);
+                raycaster.setFromCamera(mouse, camera);
 
-            const intersects = raycaster.intersectObjects(loadedModels);
+                const intersects = raycaster.intersectObjects(loadedModels);
 
-            if (intersects.length > 0) {
-                const intersectedObject = intersects[0].object;
-                updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
-                if (isZoomedIn && intersectedObject === zoomedModel) {
+                if (intersects.length > 0) {
+                    const intersectedObject = intersects[0].object;
+                    updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
+                    if (isZoomedIn && intersectedObject === zoomedModel) {
+                        zoomOut();
+                    } else {
+                        zoomIn(intersectedObject);
+                    }
+                } else if (isZoomedIn) {
+                    updateDebugOverlay('Double Click<br>Zooming Out');
                     zoomOut();
                 } else {
-                    zoomIn(intersectedObject);
+                    updateDebugOverlay('Double Click<br>No Object Intersected');
                 }
-            } else if (isZoomedIn) {
-                updateDebugOverlay('Double Click<br>Zooming Out');
-                zoomOut();
-            } else {
-                updateDebugOverlay('Double Click<br>No Object Intersected');
+            } catch (error) {
+                updateDebugOverlay(`Double Click<br>Object: ${error}`);
             }
         }
 
@@ -814,7 +818,7 @@
                 hoverTooltip = document.getElementById('hoverTooltip');
 
                 createDebugOverlay();
-                
+
                 initScene(container);
 
                 totalModelsToLoad = files.length;
