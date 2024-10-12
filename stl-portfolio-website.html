@@ -259,7 +259,7 @@
         }
 
         function onTouchStart(event) {
-            event.preventDefault();
+            //event.preventDefault();
             const touch = event.touches[0];
             const currentTime = new Date().getTime();
             
@@ -274,7 +274,7 @@
         }
 
         function onTouchMove(event) {
-            event.preventDefault();
+            //event.preventDefault();
             if (event.touches.length === 1) {
                 const touch = event.touches[0];
                 handleMove(touch);
@@ -283,7 +283,7 @@
         }
 
         function onTouchEnd(event) {
-            event.preventDefault();
+            //event.preventDefault();
             const touch = event.changedTouches[0];
             handleEnd(touch);
             updateDebugOverlay(`Touch End<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
@@ -295,10 +295,6 @@
         }
 
         function handleStart(event) {
-            if (event.detail == 1){
-                event.preventDefault();
-            }
-
             // If zoomed in, don't allow dragging models
             if (isZoomedIn) return;
 
@@ -460,35 +456,27 @@
         }
 
         function handleDoubleClick(event) {
-            try {
-                if (event.detail == 1){
-                    event.preventDefault();
-                }
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-                const rect = renderer.domElement.getBoundingClientRect();
-                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
 
-                raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(loadedModels);
 
-                const intersects = raycaster.intersectObjects(loadedModels);
-
-                if (intersects.length > 0) {
-                    const intersectedObject = intersects[0].object;
-                    updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
-                    if (isZoomedIn && intersectedObject === zoomedModel) {
-                        zoomOut();
-                    } else {
-                        zoomIn(intersectedObject);
-                    }
-                } else if (isZoomedIn) {
-                    updateDebugOverlay('Double Click<br>Zooming Out');
+            if (intersects.length > 0) {
+                const intersectedObject = intersects[0].object;
+                updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
+                if (isZoomedIn && intersectedObject === zoomedModel) {
                     zoomOut();
                 } else {
-                    updateDebugOverlay('Double Click<br>No Object Intersected');
+                    zoomIn(intersectedObject);
                 }
-            } catch (error) {
-                updateDebugOverlay(`Double Click<br>Object: ${error}`);
+            } else if (isZoomedIn) {
+                updateDebugOverlay('Double Click<br>Zooming Out');
+                zoomOut();
+            } else {
+                updateDebugOverlay('Double Click<br>No Object Intersected');
             }
         }
 
