@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="shortcut icon" href="#">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>STL File Portfolio (GitHub API) with Physics</title>
@@ -234,6 +235,7 @@
         }
 
         function onTouchStart(event) {
+            scene.background = new THREE.Color(getRandomColor());
             event.preventDefault();
             if (event.touches.length === 1) {
                 handleStart(event.touches[0]);
