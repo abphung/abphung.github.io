@@ -259,7 +259,6 @@
         }
 
         function onTouchStart(event) {
-            //event.preventDefault();
             const touch = event.touches[0];
             const currentTime = new Date().getTime();
             
@@ -274,7 +273,6 @@
         }
 
         function onTouchMove(event) {
-            //event.preventDefault();
             if (event.touches.length === 1) {
                 const touch = event.touches[0];
                 handleMove(touch);
@@ -283,7 +281,6 @@
         }
 
         function onTouchEnd(event) {
-            //event.preventDefault();
             const touch = event.changedTouches[0];
             handleEnd(touch);
             updateDebugOverlay(`Touch End<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
@@ -310,6 +307,7 @@
                 isDragging = true;
                 draggedModel = intersects[0].object;
 
+                updateDebugOverlay(`Controls Disabled`);
                 controls.enabled = false;
 
                 if (draggedModel && draggedModel.userData) {
@@ -419,6 +417,7 @@
             
             // Re-enable controls after a short delay
             setTimeout(() => {
+                updateDebugOverlay(`Controls Enabled`);
                 controls.enabled = true;
                 controls.saveState();
                 controls.reset();
@@ -525,6 +524,7 @@
             // Animate camera movement
             animateCamera(newCameraPosition, boundingSphere.center, 2000, () => {
                 // After animation, update controls
+                updateDebugOverlay(`Controls Orbit Center Updated ${boundingSphere.center}`);
                 controls.target.copy(boundingSphere.center);
                 controls.update();
             });
@@ -544,6 +544,7 @@
             // Animate camera movement back to previous position
             animateCamera(previousCameraState.position, previousCameraState.target, 1000, () => {
                 // After animation, update controls
+                updateDebugOverlay(`Controls Orbit Center Updated ${previousCameraState.target}`);
                 controls.target.copy(previousCameraState.target);
                 controls.update();
             });
