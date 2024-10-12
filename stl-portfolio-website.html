@@ -295,8 +295,6 @@
         }
 
         function handleStart(event) {
-            event.preventDefault();
-
             // If zoomed in, don't allow dragging models
             if (isZoomedIn) return;
 
@@ -460,7 +458,6 @@
         function handleDoubleClick(event) {
             try {
                 scene.background = new THREE.Color(getRandomColor());
-                event.preventDefault();
 
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -532,7 +529,7 @@
             fadeObjects(worldObjects, 1, 0);
 
             // Animate camera movement
-            animateCamera(newCameraPosition, boundingSphere.center, () => {
+            animateCamera(newCameraPosition, boundingSphere.center, 2000, () => {
                 // After animation, update controls
                 controls.target.copy(boundingSphere.center);
                 controls.update();
@@ -551,7 +548,7 @@
             fadeObjects(worldObjects, 0, 1);
 
             // Animate camera movement back to previous position
-            animateCamera(previousCameraState.position, previousCameraState.target, () => {
+            animateCamera(previousCameraState.position, previousCameraState.target, 1000, () => {
                 // After animation, update controls
                 controls.target.copy(previousCameraState.target);
                 controls.update();
@@ -619,10 +616,9 @@
             updateFade();
         }
 
-        function animateCamera(targetPosition, targetLookAt, callback) {
+        function animateCamera(targetPosition, targetLookAt, duration, callback) {
             const startPosition = camera.position.clone();
             const startLookAt = controls.target.clone();
-            const duration = 2000; // Animation duration in milliseconds
             const startTime = performance.now();
 
             function updateCamera(time) {
