@@ -75,7 +75,6 @@
         const mouse = new THREE.Vector2();
         let isDragging = false;
         let draggedModel = null;
-        let dragJoint = null;
 
         let dragPlane;
         let dragPoint = new THREE.Vector3();
@@ -403,12 +402,8 @@
 
                 draggedModel = null;
                 draggedModelRadius = 0;
-
-                if (dragJoint) {
-                    world.removeConstraint(dragJoint);
-                    dragJoint = null;
-                }
             } else if (isDragging) {
+                updateDebugOverlay('Invalid draggedModel or physicsBody in onMouseUp');
                 console.error('Invalid draggedModel or physicsBody in onMouseUp');
             }
 
@@ -419,8 +414,10 @@
             setTimeout(() => {
                 updateDebugOverlay(`Controls Enabled`);
                 controls.enabled = true;
-                controls.saveState();
-                controls.reset();
+                if (event.detail == 1){
+                    controls.saveState();
+                    controls.reset();
+                }
             }, 100);
         }
 
@@ -524,7 +521,7 @@
             // Animate camera movement
             animateCamera(newCameraPosition, boundingSphere.center, 2000, () => {
                 // After animation, update controls
-                updateDebugOverlay(`Controls Orbit Center Updated ${boundingSphere.center}`);
+                updateDebugOverlay(`Controls Orbit Center Updated`);
                 controls.target.copy(boundingSphere.center);
                 controls.update();
             });
@@ -544,7 +541,7 @@
             // Animate camera movement back to previous position
             animateCamera(previousCameraState.position, previousCameraState.target, 1000, () => {
                 // After animation, update controls
-                updateDebugOverlay(`Controls Orbit Center Updated ${previousCameraState.target}`);
+                updateDebugOverlay(`Controls Orbit Center Updated`);
                 controls.target.copy(previousCameraState.target);
                 controls.update();
             });
