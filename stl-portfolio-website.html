@@ -286,7 +286,7 @@
             event.preventDefault();
             const touch = event.changedTouches[0];
             handleEnd(touch);
-            //updateDebugOverlay(`Touch End<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
+            updateDebugOverlay(`Touch End<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
         }
 
         function onDoubleTap(event) {
@@ -295,6 +295,10 @@
         }
 
         function handleStart(event) {
+            if (event.detail == 1){
+                event.preventDefault();
+            }
+
             // If zoomed in, don't allow dragging models
             if (isZoomedIn) return;
 
@@ -457,7 +461,9 @@
 
         function handleDoubleClick(event) {
             try {
-                scene.background = new THREE.Color(getRandomColor());
+                if (event.detail == 1){
+                    event.preventDefault();
+                }
 
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
