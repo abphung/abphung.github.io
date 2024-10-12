@@ -291,134 +291,147 @@
         }
 
         function handleStart(event) {
-            // If zoomed in, don't allow dragging models
-            if (isZoomedIn) return;
+            try{
+                // If zoomed in, don't allow dragging models
+                if (isZoomedIn) return;
 
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-            raycaster.setFromCamera(mouse, camera);
-
-            const intersects = raycaster.intersectObjects(loadedModels);
-
-            if (intersects.length > 0) {
-                isDragging = true;
-                draggedModel = intersects[0].object;
-
-                updateDebugOverlay(`Controls Disabled`);
-                controls.enabled = false;
-
-                if (draggedModel && draggedModel.userData) {
-                    if (draggedModel.userData.physicsBody) {
-                        const physicsBody = draggedModel.userData.physicsBody;
-                        physicsBody.velocity.set(0, 0, 0);
-                        physicsBody.angularVelocity.set(0, 0, 0);
-
-                        // Store the radius of the dragged model's bounding sphere
-                        draggedModelRadius = physicsBody.shapes[0].radius;
-
-                        dragPlane.setFromNormalAndCoplanarPoint(
-                            camera.getWorldDirection(dragPlane.normal),
-                            intersects[0].point
-                        );
-
-                        dragPoint.copy(intersects[0].point).sub(draggedModel.position);
-
-                        // Initialize model positions and time
-                        lastModelPosition.copy(draggedModel.position);
-                        currentModelPosition.copy(draggedModel.position);
-                        lastUpdateTime = performance.now();
-                    } else {
-                        console.error('physicsBody not found in draggedModel.userData', draggedModel, intersects[0]);
-                    }
-                } else {
-                    console.error('Invalid draggedModel or userData in onMouseDown', draggedModel, intersects[0]);
-                }
-            }
-        }
-
-        function handleMove(event) {
-            if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
                 mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
                 raycaster.setFromCamera(mouse, camera);
 
-                const intersectionPoint = new THREE.Vector3();
-                raycaster.ray.intersectPlane(dragPlane, intersectionPoint);
+                const intersects = raycaster.intersectObjects(loadedModels);
 
-                intersectionPoint.sub(dragPoint);
+                if (intersects.length > 0) {
+                    isDragging = true;
+                    draggedModel = intersects[0].object;
 
-                // Ensure the model stays above the floor
-                intersectionPoint.y = Math.max(intersectionPoint.y, draggedModelRadius);
+                    updateDebugOverlay(`Controls Disabled`);
+                    controls.enabled = false;
 
-                const physicsBody = draggedModel.userData.physicsBody;
-                physicsBody.position.copy(intersectionPoint);
-                physicsBody.velocity.set(0, 0, 0);
+                    // if (draggedModel && draggedModel.userData) {
+                    //     if (draggedModel.userData.physicsBody) {
+                    //         const physicsBody = draggedModel.userData.physicsBody;
+                    //         physicsBody.velocity.set(0, 0, 0);
+                    //         physicsBody.angularVelocity.set(0, 0, 0);
 
-                // Update model positions and calculate velocity
-                const currentTime = performance.now();
-                const deltaTime = (currentTime - lastUpdateTime) / 1000; // Convert to seconds
-                
-                lastModelPosition.copy(currentModelPosition);
-                currentModelPosition.copy(intersectionPoint);
-                
-                modelVelocity.subVectors(currentModelPosition, lastModelPosition).divideScalar(deltaTime);
+                    //         // Store the radius of the dragged model's bounding sphere
+                    //         draggedModelRadius = physicsBody.shapes[0].radius;
 
-                lastUpdateTime = currentTime;
+                    //         dragPlane.setFromNormalAndCoplanarPoint(
+                    //             camera.getWorldDirection(dragPlane.normal),
+                    //             intersects[0].point
+                    //         );
+
+                    //         dragPoint.copy(intersects[0].point).sub(draggedModel.position);
+
+                    //         // Initialize model positions and time
+                    //         lastModelPosition.copy(draggedModel.position);
+                    //         currentModelPosition.copy(draggedModel.position);
+                    //         lastUpdateTime = performance.now();
+                    //     } else {
+                    //         console.error('physicsBody not found in draggedModel.userData', draggedModel, intersects[0]);
+                    //     }
+                    // } else {
+                    //     console.error('Invalid draggedModel or userData in onMouseDown', draggedModel, intersects[0]);
+                    // }
+                }
+            } catch (error) {
+                updateDebugOverlay(`${error}`);
             }
-            else {
-                const rect = renderer.domElement.getBoundingClientRect();
-                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            
+        }
 
-                // Update tooltip position immediately
-                hoverTooltip.style.left = (event.clientX + 10) + 'px';
-                hoverTooltip.style.top = (event.clientY + 10) + 'px';
+        function handleMove(event) {
+            try{
+                if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-                // Schedule a hover update
-                isHoverUpdatePending = true;
+                    raycaster.setFromCamera(mouse, camera);
+
+                    const intersectionPoint = new THREE.Vector3();
+                    raycaster.ray.intersectPlane(dragPlane, intersectionPoint);
+
+                    intersectionPoint.sub(dragPoint);
+
+                    // Ensure the model stays above the floor
+                    intersectionPoint.y = Math.max(intersectionPoint.y, draggedModelRadius);
+
+                    const physicsBody = draggedModel.userData.physicsBody;
+                    physicsBody.position.copy(intersectionPoint);
+                    physicsBody.velocity.set(0, 0, 0);
+
+                    // Update model positions and calculate velocity
+                    const currentTime = performance.now();
+                    const deltaTime = (currentTime - lastUpdateTime) / 1000; // Convert to seconds
+                    
+                    lastModelPosition.copy(currentModelPosition);
+                    currentModelPosition.copy(intersectionPoint);
+                    
+                    modelVelocity.subVectors(currentModelPosition, lastModelPosition).divideScalar(deltaTime);
+
+                    lastUpdateTime = currentTime;
+                }
+                else {
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+                    // Update tooltip position immediately
+                    hoverTooltip.style.left = (event.clientX + 10) + 'px';
+                    hoverTooltip.style.top = (event.clientY + 10) + 'px';
+
+                    // Schedule a hover update
+                    isHoverUpdatePending = true;
+                }
+            } catch (error) {
+                updateDebugOverlay(`${error}`);
             }
         }
 
         function handleEnd(event) {
-            if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
+            try{
+                if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
+                    isDragging = false;
+                    const physicsBody = draggedModel.userData.physicsBody;
+                    
+                    // Apply momentum based on model velocity, but limit it
+                    const velocityMultiplier = 1; // Adjust this value to control the momentum
+                    let newVelocity = modelVelocity.multiplyScalar(velocityMultiplier);
+                    
+                    // Limit the velocity magnitude
+                    if (newVelocity.length() > MAX_VELOCITY) {
+                        newVelocity.normalize().multiplyScalar(MAX_VELOCITY);
+                    }
+                    
+                    physicsBody.velocity.copy(newVelocity);
+                    physicsBody.position.y += 0.01; // Small upward offset on release
+
+                    draggedModel = null;
+                    draggedModelRadius = 0;
+                } else if (isDragging) {
+                    updateDebugOverlay('Invalid draggedModel or physicsBody in onMouseUp');
+                    console.error('Invalid draggedModel or physicsBody in onMouseUp');
+                }
+
                 isDragging = false;
-                const physicsBody = draggedModel.userData.physicsBody;
-                
-                // Apply momentum based on model velocity, but limit it
-                const velocityMultiplier = 1; // Adjust this value to control the momentum
-                let newVelocity = modelVelocity.multiplyScalar(velocityMultiplier);
-                
-                // Limit the velocity magnitude
-                if (newVelocity.length() > MAX_VELOCITY) {
-                    newVelocity.normalize().multiplyScalar(MAX_VELOCITY);
-                }
-                
-                physicsBody.velocity.copy(newVelocity);
-                physicsBody.position.y += 0.01; // Small upward offset on release
-
                 draggedModel = null;
-                draggedModelRadius = 0;
-            } else if (isDragging) {
-                updateDebugOverlay('Invalid draggedModel or physicsBody in onMouseUp');
-                console.error('Invalid draggedModel or physicsBody in onMouseUp');
+                
+                // Re-enable controls after a short delay
+                setTimeout(() => {
+                    updateDebugOverlay(`Controls Enabled`);
+                    controls.enabled = true;
+                    if (event.detail == 1){
+                        controls.saveState();
+                        controls.reset();
+                    }
+                }, 100);
+            } catch (error) {
+                updateDebugOverlay(`${error}`);
             }
-
-            isDragging = false;
-            draggedModel = null;
-            
-            // Re-enable controls after a short delay
-            setTimeout(() => {
-                updateDebugOverlay(`Controls Enabled`);
-                controls.enabled = true;
-                if (event.detail == 1){
-                    controls.saveState();
-                    controls.reset();
-                }
-            }, 100);
         }
 
         // New function to handle hover updates
@@ -452,27 +465,31 @@
         }
 
         function handleDoubleClick(event) {
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            try{
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-            raycaster.setFromCamera(mouse, camera);
+                raycaster.setFromCamera(mouse, camera);
 
-            const intersects = raycaster.intersectObjects(loadedModels);
+                const intersects = raycaster.intersectObjects(loadedModels);
 
-            if (intersects.length > 0) {
-                const intersectedObject = intersects[0].object;
-                updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
-                if (isZoomedIn && intersectedObject === zoomedModel) {
+                if (intersects.length > 0) {
+                    const intersectedObject = intersects[0].object;
+                    updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
+                    if (isZoomedIn && intersectedObject === zoomedModel) {
+                        zoomOut();
+                    } else {
+                        zoomIn(intersectedObject);
+                    }
+                } else if (isZoomedIn) {
+                    updateDebugOverlay('Double Click<br>Zooming Out');
                     zoomOut();
                 } else {
-                    zoomIn(intersectedObject);
+                    updateDebugOverlay('Double Click<br>No Object Intersected');
                 }
-            } else if (isZoomedIn) {
-                updateDebugOverlay('Double Click<br>Zooming Out');
-                zoomOut();
-            } else {
-                updateDebugOverlay('Double Click<br>No Object Intersected');
+            } catch (error) {
+                updateDebugOverlay(`${error}`);
             }
         }
 
