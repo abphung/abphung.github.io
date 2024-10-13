@@ -308,7 +308,6 @@
                     isDragging = true;
                     draggedModel = intersects[0].object;
 
-                    updateDebugOverlay(`Controls Disabled`);
                     controls.enabled = false;
 
                     if (draggedModel && draggedModel.userData) {
@@ -387,9 +386,7 @@
                     hoverTooltip.style.left = (event.clientX + 10) + 'px';
                     hoverTooltip.style.top = (event.clientY + 10) + 'px';
 
-                    // Schedule a hover update
-                    updateDebugOverlay('Scheduling Hover Update');
-                    //isHoverUpdatePending = true;
+                    isHoverUpdatePending = true;
                 }
             } catch (error) {
                 updateDebugOverlay(`${error}`);
@@ -414,13 +411,12 @@
                     
                     physicsBody.velocity.copy(newVelocity);
                     physicsBody.mass = 1;
-                    
+
                     modelVelocity = new THREE.Vector3();
 
                     draggedModel = null;
                     draggedModelRadius = 0;
                 } else if (isDragging) {
-                    updateDebugOverlay('Invalid draggedModel or physicsBody in onMouseUp');
                     console.error('Invalid draggedModel or physicsBody in onMouseUp');
                 }
 
@@ -429,7 +425,6 @@
                 
                 // Re-enable controls after a short delay
                 setTimeout(() => {
-                    updateDebugOverlay(`Controls Enabled`);
                     controls.enabled = true;
                     controls.saveState();
                     controls.reset();
@@ -568,7 +563,6 @@
             // Animate camera movement back to previous position
             animateCamera(previousCameraState.position, previousCameraState.target, 1000, () => {
                 // After animation, update controls
-                updateDebugOverlay(`Controls Orbit Center Updated`);
                 controls.target.copy(previousCameraState.target);
                 controls.update();
             });
@@ -845,8 +839,8 @@
                 }
 
                 renderer.domElement.addEventListener('touchstart', onTouchStart, false);
-                renderer.domElement.addEventListener('touchmove', onTouchMove, false);
-                renderer.domElement.addEventListener('touchend', onTouchEnd, false);
+                // renderer.domElement.addEventListener('touchmove', onTouchMove, false);
+                // renderer.domElement.addEventListener('touchend', onTouchEnd, false);
                 renderer.domElement.addEventListener('dblclick', handleDoubleClick, false);
                 renderer.domElement.addEventListener('mousedown', handleStart, false);
                 renderer.domElement.addEventListener('mousemove', handleMove, false);
