@@ -262,12 +262,12 @@
             const currentTime = new Date().getTime();
             
             touchCount++;
-            if (currentTime - lastTouchTimestamp < 300) {
+            if (currentTime - lastTouchTimestamp < 500) {
                 onDoubleTap(touch);
             }
             lastTouchTimestamp = currentTime;
 
-            handleStart(touch);
+            //handleStart(touch);
             updateDebugOverlay(`Touch Start<br>X: ${touch.clientX}<br>Y: ${touch.clientY}<br>Count: ${touchCount}`);
         }
 
@@ -291,6 +291,7 @@
         }
 
         function handleStart(event) {
+            event.preventDefault();
             try{
                 // If zoomed in, don't allow dragging models
                 if (isZoomedIn) return;
@@ -315,6 +316,8 @@
                             const physicsBody = draggedModel.userData.physicsBody;
                             physicsBody.velocity.set(0, 0, 0);
                             physicsBody.angularVelocity.set(0, 0, 0);
+                            console.log(physicsBody.mass)
+                            physicsBody.mass = 0;
 
                             // Store the radius of the dragged model's bounding sphere
                             draggedModelRadius = physicsBody.shapes[0].radius;
@@ -385,7 +388,8 @@
                     hoverTooltip.style.top = (event.clientY + 10) + 'px';
 
                     // Schedule a hover update
-                    isHoverUpdatePending = true;
+                    updateDebugOverlay('Scheduling Hover Update');
+                    //isHoverUpdatePending = true;
                 }
             } catch (error) {
                 updateDebugOverlay(`${error}`);
@@ -393,6 +397,7 @@
         }
 
         function handleEnd(event) {
+            event.preventDefault();
             try{
                 if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
                     isDragging = false;
@@ -408,7 +413,7 @@
                     }
                     
                     physicsBody.velocity.copy(newVelocity);
-                    physicsBody.position.y += 0.01; // Small upward offset on release
+                    physicsBody.mass = 1;
 
                     draggedModel = null;
                     draggedModelRadius = 0;
@@ -463,6 +468,7 @@
         }
 
         function handleDoubleClick(event) {
+            event.preventDefault();
             try{
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -513,6 +519,10 @@
 
             isZoomedIn = true;
             zoomedModel = model;
+
+            const physicsBody = zoomedModel.userData.physicsBody;
+            physicsBody.velocity.set(0, 0, 0);
+            physicsBody.angularVelocity.set(0, 0, 0);
 
             // Calculate the bounding sphere of the model
             const boundingSphere = new THREE.Sphere();
