@@ -64,6 +64,7 @@
         let scene, camera, renderer, controls, world;
         const loader = new STLLoader();
         const loadedModels = [];
+        let boundingSpheres = [];
         let totalModelsToLoad = 0;
         let loadedModelCount = 0;
         let sphereWireframes = [];
@@ -90,7 +91,7 @@
         const picker = new THREE.Raycaster();
         let isHoverUpdatePending = false;
         let lastHoverUpdateTime = 0;
-        const HOVER_UPDATE_INTERVAL = 2000;
+        const HOVER_UPDATE_INTERVAL = 400;
 
         let previousCameraState = {
             position: new THREE.Vector3(),
@@ -99,7 +100,6 @@
         let isZoomedIn = false;
         let zoomedModel = null;
 
-        const frustum = new THREE.Frustum();
         const projScreenMatrix = new THREE.Matrix4();
 
         let fadeOutObjects = [];
@@ -113,7 +113,7 @@
         let lastTouchTimestamp = 0;
         let touchCount = 0;
 
-        const MAX_VELOCITY = 1500; // Maximum velocity magnitude
+        const MAX_VELOCITY = 500; // Maximum velocity magnitude
         const colorPalette = [
             '#3498db', // Blue
             '#2ecc71', // Green
@@ -177,7 +177,6 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.25;
             controls.enableZoom = true;
-            controls.addEventListener('change', updateFrustum);
 
             const ambientLight = new THREE.AmbientLight(0x404040);
             scene.add(ambientLight);
@@ -251,24 +250,20 @@
             animate();
         }
 
-        function updateFrustum() {
-            camera.updateMatrixWorld();
-            projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-            frustum.setFromProjectionMatrix(projScreenMatrix);
-        }
-
         function onTouchStart(event) {
-            const touch = event.touches[0];
-            const currentTime = new Date().getTime();
-            
-            touchCount++;
-            if (currentTime - lastTouchTimestamp < 500) {
-                onDoubleTap(touch);
-            }
-            lastTouchTimestamp = currentTime;
+            if (event.touches.length === 1) {
+                const touch = event.touches[0];
+                const currentTime = new Date().getTime();
+                
+                touchCount++;
+                if (currentTime - lastTouchTimestamp < 500) {
+                    onDoubleTap(touch);
+                }
+                lastTouchTimestamp = currentTime;
 
-            //handleStart(touch);
-            updateDebugOverlay(`Touch Start<br>X: ${touch.clientX}<br>Y: ${touch.clientY}<br>Count: ${touchCount}`);
+                //handleStart(touch);
+                updateDebugOverlay(`Touch Start<br>X: ${touch.clientX}<br>Y: ${touch.clientY}<br>Count: ${touchCount}`);
+            }
         }
 
         function onTouchMove(event) {
@@ -291,7 +286,7 @@
         }
 
         function handleStart(event) {
-            try{
+            try {
                 // If zoomed in, don't allow dragging models
                 if (isZoomedIn) return;
 
@@ -301,11 +296,25 @@
 
                 raycaster.setFromCamera(mouse, camera);
 
-                const intersects = raycaster.intersectObjects(loadedModels);
+                let closestIntersection = null;
+                let closestDistance = Infinity;
+                let intersectedSphere = null;
 
-                if (intersects.length > 0) {
+                boundingSpheres.forEach(({ sphere, model }) => {
+                    const intersection = new THREE.Vector3();
+                    if (raycaster.ray.intersectSphere(sphere, intersection)) {
+                        const distance = raycaster.ray.origin.distanceTo(intersection);
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestIntersection = intersection;
+                            intersectedSphere = { sphere, model };
+                        }
+                    }
+                });
+
+                if (intersectedSphere && closestIntersection) {
                     isDragging = true;
-                    draggedModel = intersects[0].object;
+                    draggedModel = intersectedSphere.model;
 
                     controls.enabled = false;
 
@@ -314,7 +323,6 @@
                             const physicsBody = draggedModel.userData.physicsBody;
                             physicsBody.velocity.set(0, 0, 0);
                             physicsBody.angularVelocity.set(0, 0, 0);
-                            console.log(physicsBody.mass)
                             physicsBody.mass = 0;
 
                             // Store the radius of the dragged model's bounding sphere
@@ -322,30 +330,30 @@
 
                             dragPlane.setFromNormalAndCoplanarPoint(
                                 camera.getWorldDirection(dragPlane.normal),
-                                intersects[0].point
+                                closestIntersection
                             );
 
-                            dragPoint.copy(intersects[0].point).sub(draggedModel.position);
+                            // Set dragPoint to be the vector from the model's center to the intersection point
+                            dragPoint.copy(closestIntersection).sub(draggedModel.position);
 
                             // Initialize model positions and time
                             lastModelPosition.copy(draggedModel.position);
                             currentModelPosition.copy(draggedModel.position);
                             lastUpdateTime = performance.now();
                         } else {
-                            console.error('physicsBody not found in draggedModel.userData', draggedModel, intersects[0]);
+                            console.error('physicsBody not found in draggedModel.userData', draggedModel);
                         }
                     } else {
-                        console.error('Invalid draggedModel or userData in onMouseDown', draggedModel, intersects[0]);
+                        console.error('Invalid draggedModel or userData in handleStart', draggedModel);
                     }
                 }
             } catch (error) {
-                updateDebugOverlay(`${error}`);
+                updateDebugOverlay(`Error in handleStart: ${error}`);
             }
-            
         }
 
         function handleMove(event) {
-            try{
+            try {
                 if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
                     const rect = renderer.domElement.getBoundingClientRect();
                     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -356,13 +364,14 @@
                     const intersectionPoint = new THREE.Vector3();
                     raycaster.ray.intersectPlane(dragPlane, intersectionPoint);
 
-                    intersectionPoint.sub(dragPoint);
+                    // Calculate new position by subtracting dragPoint from intersection
+                    const newPosition = intersectionPoint.sub(dragPoint);
 
                     // Ensure the model stays above the floor
-                    intersectionPoint.y = Math.max(intersectionPoint.y, draggedModelRadius);
+                    newPosition.y = Math.max(newPosition.y, draggedModelRadius);
 
                     const physicsBody = draggedModel.userData.physicsBody;
-                    physicsBody.position.copy(intersectionPoint);
+                    physicsBody.position.copy(newPosition);
                     physicsBody.velocity.set(0, 0, 0);
 
                     // Update model positions and calculate velocity
@@ -370,25 +379,17 @@
                     const deltaTime = (currentTime - lastUpdateTime) / 1000; // Convert to seconds
                     
                     lastModelPosition.copy(currentModelPosition);
-                    currentModelPosition.copy(intersectionPoint);
+                    currentModelPosition.copy(newPosition);
                     
                     modelVelocity.subVectors(currentModelPosition, lastModelPosition).divideScalar(deltaTime);
 
                     lastUpdateTime = currentTime;
                 }
                 else {
-                    const rect = renderer.domElement.getBoundingClientRect();
-                    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-                    // Update tooltip position immediately
-                    hoverTooltip.style.left = (event.clientX + 10) + 'px';
-                    hoverTooltip.style.top = (event.clientY + 10) + 'px';
-
-                    isHoverUpdatePending = true;
+                    // ... (rest of the existing handleMove code)
                 }
             } catch (error) {
-                updateDebugOverlay(`${error}`);
+                updateDebugOverlay(`Error in handleMove: ${error}`);
             }
         }
 
@@ -445,10 +446,10 @@
             lastHoverUpdateTime = currentTime;
 
             picker.setFromCamera(mouse, camera);
-            const intersects = picker.intersectObjects(loadedModels, true);
+            const intersectedSphere = boundingSpheres.find(({ sphere }) => picker.ray.intersectsSphere(sphere));
 
-            if (intersects.length > 0) {
-                const intersectedObject = intersects[0].object;
+            if (intersectedSphere) {
+                const intersectedObject = intersectedSphere.model;
                 const modelName = intersectedObject.userData.fileName || 'Unknown Model';
                 console.log(`hovering over model: ${modelName}`, intersectedObject.userData, loadedModels)
                 hoverTooltip.textContent = modelName;
@@ -470,10 +471,10 @@
 
                 raycaster.setFromCamera(mouse, camera);
 
-                const intersects = raycaster.intersectObjects(loadedModels);
+                const intersectedSphere = boundingSpheres.find(({ sphere }) => raycaster.ray.intersectsSphere(sphere));
 
-                if (intersects.length > 0) {
-                    const intersectedObject = intersects[0].object;
+                if (intersectedSphere) {
+                    const intersectedObject = intersectedSphere.model;
                     updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
                     if (isZoomedIn && intersectedObject === zoomedModel) {
                         zoomOut();
@@ -718,6 +719,9 @@
                     scene.add(sphereWireframe);
                     sphereWireframes.push(sphereWireframe);
 
+                    const boundingSphere = new THREE.Sphere(mesh.position.clone(), radius);
+                    boundingSpheres.push({ sphere: boundingSphere, model: mesh });
+
                     const spawnHeight = 500 + (index * count + i) * 10; // Increased height
                     const offsetRange = 20; // Range for random offset
                     const offsetX = (Math.random() - 0.5) * offsetRange * count;
@@ -773,8 +777,7 @@
             } catch (error) {
                 console.error('Error in physics simulation step:', error);
             }
-            
-            updateFrustum();
+
 
             for (let i = 0; i < loadedModels.length; i++) {
                 const mesh = loadedModels[i];
@@ -788,12 +791,9 @@
                         sphereWireframes[i].position.copy(physicsBody.position);
                         sphereWireframes[i].quaternion.copy(physicsBody.quaternion);
                     }
-                    
-                    // Frustum culling
-                    if (frustum.containsPoint(mesh.position)) {
-                        if (!mesh.visible) mesh.visible = true;
-                    } else {
-                        if (mesh.visible) mesh.visible = false;
+
+                    if (boundingSpheres[i]) {
+                        boundingSpheres[i].sphere.center.copy(physicsBody.position);
                     }
                 }
             }
@@ -836,8 +836,6 @@
                 }
 
                 renderer.domElement.addEventListener('touchstart', onTouchStart, false);
-                // renderer.domElement.addEventListener('touchmove', onTouchMove, false);
-                // renderer.domElement.addEventListener('touchend', onTouchEnd, false);
                 renderer.domElement.addEventListener('dblclick', handleDoubleClick, false);
                 renderer.domElement.addEventListener('mousedown', handleStart, false);
                 renderer.domElement.addEventListener('mousemove', handleMove, false);
