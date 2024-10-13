@@ -291,7 +291,6 @@
         }
 
         function handleStart(event) {
-            event.preventDefault();
             try{
                 // If zoomed in, don't allow dragging models
                 if (isZoomedIn) return;
@@ -394,7 +393,6 @@
         }
 
         function handleEnd(event) {
-            event.preventDefault();
             try{
                 if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
                     isDragging = false;
@@ -465,7 +463,6 @@
         }
 
         function handleDoubleClick(event) {
-            event.preventDefault();
             try{
                 const rect = renderer.domElement.getBoundingClientRect();
                 mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
