@@ -414,6 +414,8 @@
                     
                     physicsBody.velocity.copy(newVelocity);
                     physicsBody.mass = 1;
+                    
+                    modelVelocity = new THREE.Vector3();
 
                     draggedModel = null;
                     draggedModelRadius = 0;
