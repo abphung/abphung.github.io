@@ -58,7 +58,7 @@
         import * as CANNON from 'https://jspm.dev/cannon-es@0.20.0';
 
         const owner = 'abphung';
-        const repo = 'abphung.github.io';
+        const repo = 'OpenSCADProjects';
         const path = '';
 
         const MAX_VELOCITY = 1000; // Maximum velocity magnitude
@@ -154,15 +154,28 @@
             }
         }
 
-        async function fetchSTLFiles() {
+        async function fetchAllFiles(owner, repo, path = '') {
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
             const response = await fetch(apiUrl);
             const data = await response.json();
-            return data.filter(file => file.name.toLowerCase().endsWith('.stl'))
-                       .map(file => ({
-                           name: file.name,
-                           url: file.download_url
-                       }));
+            
+            let allFiles = [];
+            
+            for (const item of data) {
+                if (item.type === 'file') {
+                    if (item.name.toLowerCase().endsWith('.stl')) {
+                        allFiles.push({
+                            name: item.path,
+                            url: item.download_url
+                        });
+                    }
+                } else if (item.type === 'dir') {
+                    const subFiles = await fetchAllFiles(owner, repo, item.path);
+                    allFiles = allFiles.concat(subFiles);
+                }
+            }
+            
+            return allFiles;
         }
 
         function initScene(container) {
@@ -871,7 +884,11 @@
 
         async function initGallery() {
             try {
-                const files = await fetchSTLFiles();
+                updateDebugOverlay('Fetching files from GitHub...');
+                const startTime = performance.now();
+                const files = await fetchAllFiles(owner, repo);
+                const fetchTime = performance.now() - startTime;
+                updateDebugOverlay(`Fetched ${files.length} files in ${fetchTime.toFixed(2)}ms`);
                 console.log('Fetched files:', files);
 
                 const container = document.getElementById('stl-viewer');
@@ -885,7 +902,7 @@
                 totalModelsToLoad = files.length;
                 loadedModelCount = 0;
 
-                const count = 5;
+                const count = 1;
                 for (let i = 0; i < count; i++) {
                     files.forEach((file, index) => {
                         queueModelLoad(file, index, count, i);
