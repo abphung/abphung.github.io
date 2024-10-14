@@ -61,6 +61,18 @@
         const repo = 'abphung.github.io';
         const path = '';
 
+        const MAX_VELOCITY = 500; // Maximum velocity magnitude
+        const colorPalette = [
+            '#3498db', // Blue
+            '#2ecc71', // Green
+            '#e74c3c', // Red
+            '#f39c12', // Orange
+            '#9b59b6', // Purple
+            '#1abc9c', // Teal
+            '#34495e', // Dark Blue
+            '#95a5a6'  // Gray
+        ];
+
         let scene, camera, renderer, controls, world;
         const loader = new STLLoader();
         const loadedModels = [];
@@ -113,17 +125,8 @@
         let lastTouchTimestamp = 0;
         let touchCount = 0;
 
-        const MAX_VELOCITY = 500; // Maximum velocity magnitude
-        const colorPalette = [
-            '#3498db', // Blue
-            '#2ecc71', // Green
-            '#e74c3c', // Red
-            '#f39c12', // Orange
-            '#9b59b6', // Purple
-            '#1abc9c', // Teal
-            '#34495e', // Dark Blue
-            '#95a5a6'  // Gray
-        ];
+        let modelLoadQueue = [];
+        let isLoadingModel = false;
 
         function getRandomColor() {
             return colorPalette[Math.floor(Math.random() * colorPalette.length)];
@@ -208,22 +211,29 @@
             });
             world.addContactMaterial(groundObjectContact);
 
+            // Define a common material for floor and walls
+            const transparentMaterial = new THREE.MeshBasicMaterial({
+                color: 0x4a5568, // A soft blue-gray color
+                transparent: true,
+                opacity: 0.05,
+                side: THREE.DoubleSide
+            });
+
+            // Create floor
             const planeGeometry = new THREE.PlaneGeometry(areaSize * 2, areaSize * 2);
-            const planeMaterial = new THREE.MeshBasicMaterial({ color: '#e2e8f0', side: THREE.DoubleSide });
-            const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+            const planeMesh = new THREE.Mesh(planeGeometry, transparentMaterial);
             planeMesh.rotation.x = Math.PI / 2;
             planeMesh.position.y = 0;
             scene.add(planeMesh);
             worldObjects.push(planeMesh);
 
-            // Create borders
-            const borderHeight = areaSize/3;
-            const borderThickness = areaSize/100;
+            // Create borders (walls)
+            const borderHeight = 2 * areaSize;
+            const borderThickness = areaSize / 100;
             const borderGeometry = new THREE.BoxGeometry(areaSize * 2, borderHeight, borderThickness);
-            const borderMaterial = new THREE.MeshBasicMaterial({ color: '#4a5568' });
 
             const createBorder = (x, z, rotationY) => {
-                const borderMesh = new THREE.Mesh(borderGeometry, borderMaterial);
+                const borderMesh = new THREE.Mesh(borderGeometry, transparentMaterial);
                 borderMesh.position.set(x, borderHeight / 2, z);
                 borderMesh.rotation.y = rotationY;
                 scene.add(borderMesh);
@@ -536,7 +546,7 @@
             // Start fading out objects
             fadeObjects(fadeOutObjects, 1, 0);
             fadeObjects(sphereWireframes, .1, 0)
-            fadeObjects(worldObjects, 1, 0);
+            fadeObjects(worldObjects, .05, 0);
 
             // Animate camera movement
             animateCamera(newCameraPosition, boundingSphere.center, 2000, () => {
@@ -555,7 +565,7 @@
             // Start fading in objects
             fadeObjects(fadeInObjects, 0, 1);
             fadeObjects(sphereWireframes, 0, .1)
-            fadeObjects(worldObjects, 0, 1);
+            fadeObjects(worldObjects, 0, .05);
 
             // Animate camera movement back to previous position
             animateCamera(previousCameraState.position, previousCameraState.target, 1000, () => {
@@ -686,86 +696,117 @@
             return { visual: sphereWireframe, physical: cannonShape, radius: radius };
         }
 
+        function queueModelLoad(file, index, count = 1, i = 0) {
+            setTimeout(() => {
+                modelLoadQueue.push({ file, index, count, i });
+                processModelQueue();
+            }, index * 1000); // Adjust this delay as needed
+        }
+
+        // Function to process the model queue
+        function processModelQueue() {
+            if (isLoadingModel || modelLoadQueue.length === 0) return;
+            
+            isLoadingModel = true;
+            const { file, index, count, i } = modelLoadQueue.shift();
+            
+            loadSTLModel(file, index, count, i)
+                .then(() => {
+                    isLoadingModel = false;
+                    processModelQueue(); // Process next item in queue
+                })
+                .catch(error => {
+                    console.error(`Error loading model ${file.name}:`, error);
+                    isLoadingModel = false;
+                    processModelQueue(); // Continue to next item even if there's an error
+                });
+        }
+
         function loadSTLModel(file, index, count = 1, i = 0) {
-            console.log(`Starting to load model: ${file.name}`);
-            loader.load(
-                file.url,
-                (geometry) => {
-                    console.log(`Model loaded successfully: ${file.name}`);
-                    const material = new THREE.MeshPhongMaterial({ 
-                        color: new THREE.Color(getRandomColor()),
-                        specular: 0x111111, 
-                        shininess: 30
-                    });
-                    console.log(`geometry.attributes.position.count: ${geometry.attributes.position.count}`);
+            return new Promise((resolve, reject) => {
+                console.log(`Starting to load model: ${file.name}`);
+                loader.load(
+                    file.url,
+                    (geometry) => {
+                        console.log(`Model loaded successfully: ${file.name}`);
+                        const material = new THREE.MeshPhongMaterial({ 
+                            color: new THREE.Color(getRandomColor()),
+                            specular: 0x111111, 
+                            shininess: 30
+                        });
+                        console.log(`geometry.attributes.position.count: ${geometry.attributes.position.count}`);
 
-                    const mesh = new THREE.Mesh(geometry, material);
-                    mesh.userData.fileName = `${file.name} (${i+1})`;
+                        const mesh = new THREE.Mesh(geometry, material);
+                        mesh.userData.fileName = `${file.name} (${i+1})`;
 
-                    geometry.center();
-                    geometry.computeBoundingBox();
-                    const box = new THREE.Box3().setFromObject(mesh);
-                    const size = box.getSize(new THREE.Vector3());
+                        geometry.center();
+                        geometry.computeBoundingBox();
+                        const box = new THREE.Box3().setFromObject(mesh);
+                        const size = box.getSize(new THREE.Vector3());
 
-                    const tallestDimension = Math.max(size.x, size.y, size.z);
+                        const tallestDimension = Math.max(size.x, size.y, size.z);
 
-                    mesh.rotation.x = -Math.PI / 2;
+                        mesh.rotation.x = -Math.PI / 2;
 
-                    const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, 1);
-                    sphereWireframe.position.copy(mesh.position);
-                    sphereWireframe.rotation.copy(mesh.rotation);
-                    sphereWireframe.material.color.setHex(0x4a5568);
-                    scene.add(sphereWireframe);
-                    sphereWireframes.push(sphereWireframe);
+                        const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, 1);
+                        sphereWireframe.position.copy(mesh.position);
+                        sphereWireframe.rotation.copy(mesh.rotation);
+                        sphereWireframe.material.color.setHex(0x4a5568);
+                        scene.add(sphereWireframe);
+                        sphereWireframes.push(sphereWireframe);
 
-                    const boundingSphere = new THREE.Sphere(mesh.position.clone(), radius);
-                    boundingSpheres.push({ sphere: boundingSphere, model: mesh });
+                        const boundingSphere = new THREE.Sphere(mesh.position.clone(), radius);
+                        boundingSpheres.push({ sphere: boundingSphere, model: mesh });
 
-                    const spawnHeight = 500 + (index * count + i) * 10; // Increased height
-                    const offsetRange = 20; // Range for random offset
-                    const offsetX = (Math.random() - 0.5) * offsetRange * count;
-                    const offsetZ = (Math.random() - 0.5) * offsetRange * count;
-                    
-                    const body = new CANNON.Body({
-                        mass: 1,
-                        shape: shape,
-                        position: new CANNON.Vec3(offsetX, spawnHeight, offsetZ),
-                        linearDamping: 0.5, // Reduced from 0.9 to allow more movement
-                        angularDamping: 0.5, // Added to allow more rotation
-                    });
+                        const spawnHeight = 500 + (index * count + i) * 10; // Increased height
+                        const offsetRange = 20; // Range for random offset
+                        const offsetX = (Math.random() - 0.5) * offsetRange * count;
+                        const offsetZ = (Math.random() - 0.5) * offsetRange * count;
+                        
+                        const body = new CANNON.Body({
+                            mass: 1,
+                            shape: shape,
+                            position: new CANNON.Vec3(offsetX, spawnHeight, offsetZ),
+                            linearDamping: 0.5, // Reduced from 0.9 to allow more movement
+                            angularDamping: 0.5, // Added to allow more rotation
+                        });
 
-                    // Add initial velocity for more movement
-                    const initialVelocity = new CANNON.Vec3(
-                        (Math.random() - 0.5) * 10,
-                        0,
-                        (Math.random() - 0.5) * 10
-                    );
-                    body.velocity.copy(initialVelocity);
+                        // Add initial velocity for more movement
+                        const initialVelocity = new CANNON.Vec3(
+                            (Math.random() - 0.5) * 10,
+                            0,
+                            (Math.random() - 0.5) * 10
+                        );
+                        body.velocity.copy(initialVelocity);
 
-                    body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-                    console.log(`${body.quaternion}`)
-                    world.addBody(body);
-                    sphereWireframe.userData.physicsBody = body;
+                        body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+                        console.log(`${body.quaternion}`)
+                        world.addBody(body);
+                        sphereWireframe.userData.physicsBody = body;
 
-                    mesh.userData.physicsBody = body;
-                    console.log(`Physics body set for model: ${file.name}`, mesh.userData);
+                        mesh.userData.physicsBody = body;
+                        console.log(`Physics body set for model: ${file.name}`, mesh.userData);
 
-                    scene.add(mesh);
-                    loadedModels.push(mesh);
+                        scene.add(mesh);
+                        loadedModels.push(mesh);
 
-                    console.log(`Model added to scene: ${file.name}`);
-                    console.log(`Total models in scene: ${loadedModels.length}`);
+                        console.log(`Model added to scene: ${file.name}`);
+                        console.log(`Total models in scene: ${loadedModels.length}`);
 
-                    loadedModelCount++;
-                },
-                (xhr) => {
-                    console.log(`${file.name} ${(xhr.loaded / xhr.total * 100)}% loaded`);
-                },
-                (error) => {
-                    console.error(`Error loading ${file.name}:`, error);
-                    loadedModelCount++;
-                }
-            );
+                        loadedModelCount++;
+                        resolve();
+                    },
+                    (xhr) => {
+                        console.log(`${file.name} ${(xhr.loaded / xhr.total * 100)}% loaded`);
+                    },
+                    (error) => {
+                        console.error(`Error loading ${file.name}:`, error);
+                        loadedModelCount++;
+                        reject(error);
+                    }
+                );
+            });
+            
         }
 
         function animate() {
@@ -827,10 +868,10 @@
                 totalModelsToLoad = files.length;
                 loadedModelCount = 0;
 
-                const count = 1;
+                const count = 5;
                 for (let i = 0; i < count; i++) {
                     files.forEach((file, index) => {
-                        setTimeout(() => loadSTLModel(file, index, count, i), index * 1000); // Reduced delay to 500ms
+                        queueModelLoad(file, index, count, i);
                     });
                 }
 
