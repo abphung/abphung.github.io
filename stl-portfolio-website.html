@@ -61,7 +61,7 @@
         const repo = 'abphung.github.io';
         const path = '';
 
-        const MAX_VELOCITY = 500; // Maximum velocity magnitude
+        const MAX_VELOCITY = 1000; // Maximum velocity magnitude
         const colorPalette = [
             '#3498db', // Blue
             '#2ecc71', // Green
@@ -148,6 +148,7 @@
         }
 
         function updateDebugOverlay(message) {
+            console.log(message);
             if (debugOverlay) {
                 debugOverlay.innerHTML = message;
             }
@@ -396,7 +397,15 @@
                     lastUpdateTime = currentTime;
                 }
                 else {
-                    // ... (rest of the existing handleMove code)
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+                    // Update tooltip position immediately
+                    hoverTooltip.style.left = (event.clientX + 10) + 'px';
+                    hoverTooltip.style.top = (event.clientY + 10) + 'px';
+
+                    isHoverUpdatePending = true;
                 }
             } catch (error) {
                 updateDebugOverlay(`Error in handleMove: ${error}`);
@@ -680,7 +689,6 @@
             geometry.computeBoundingSphere();
             const sphere = geometry.boundingSphere;
             const radius = sphere.radius * scale;
-            console.log(`sphere radius ${radius}`);
             const sphereGeometry = new THREE.SphereGeometry(radius, 16, 16);
             const wireframe = new THREE.WireframeGeometry(sphereGeometry);
             const sphereWireframe = new THREE.LineSegments(wireframe);
@@ -724,42 +732,51 @@
 
         function loadSTLModel(file, index, count = 1, i = 0) {
             return new Promise((resolve, reject) => {
-                console.log(`Starting to load model: ${file.name}`);
+                const startTime = performance.now();
+                updateDebugOverlay(`Starting to load model: ${file.name}`);
+                
                 loader.load(
                     file.url,
                     (geometry) => {
-                        console.log(`Model loaded successfully: ${file.name}`);
+                        const geometryLoadTime = performance.now() - startTime;
+                        updateDebugOverlay(`Geometry loaded: ${file.name} (${geometryLoadTime.toFixed(2)}ms)`);
+
+                        const materialStart = performance.now();
                         const material = new THREE.MeshPhongMaterial({ 
                             color: new THREE.Color(getRandomColor()),
                             specular: 0x111111, 
                             shininess: 30
                         });
-                        console.log(`geometry.attributes.position.count: ${geometry.attributes.position.count}`);
+                        const materialTime = performance.now() - materialStart;
+                        updateDebugOverlay(`Material created (${materialTime.toFixed(2)}ms)`);
 
+                        const meshStart = performance.now();
                         const mesh = new THREE.Mesh(geometry, material);
                         mesh.userData.fileName = `${file.name} (${i+1})`;
+                        const meshTime = performance.now() - meshStart;
+                        updateDebugOverlay(`Mesh created (${meshTime.toFixed(2)}ms)`);
 
+                        const geometryProcessStart = performance.now();
                         geometry.center();
-                        geometry.computeBoundingBox();
-                        const box = new THREE.Box3().setFromObject(mesh);
-                        const size = box.getSize(new THREE.Vector3());
-
-                        const tallestDimension = Math.max(size.x, size.y, size.z);
-
                         mesh.rotation.x = -Math.PI / 2;
+                        const geometryProcessTime = performance.now() - geometryProcessStart;
+                        updateDebugOverlay(`Geometry processed (${geometryProcessTime.toFixed(2)}ms)`);
 
+                        const boundingSphereStart = performance.now();
                         const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, 1);
                         sphereWireframe.position.copy(mesh.position);
                         sphereWireframe.rotation.copy(mesh.rotation);
                         sphereWireframe.material.color.setHex(0x4a5568);
                         scene.add(sphereWireframe);
                         sphereWireframes.push(sphereWireframe);
-
                         const boundingSphere = new THREE.Sphere(mesh.position.clone(), radius);
                         boundingSpheres.push({ sphere: boundingSphere, model: mesh });
+                        const boundingSphereTime = performance.now() - boundingSphereStart;
+                        updateDebugOverlay(`Bounding sphere created (${boundingSphereTime.toFixed(2)}ms)`);
 
-                        const spawnHeight = 500 + (index * count + i) * 10; // Increased height
-                        const offsetRange = 20; // Range for random offset
+                        const physicsStart = performance.now();
+                        const spawnHeight = 500 + (index * count + i) * 10;
+                        const offsetRange = 20;
                         const offsetX = (Math.random() - 0.5) * offsetRange * count;
                         const offsetZ = (Math.random() - 0.5) * offsetRange * count;
                         
@@ -767,11 +784,10 @@
                             mass: 1,
                             shape: shape,
                             position: new CANNON.Vec3(offsetX, spawnHeight, offsetZ),
-                            linearDamping: 0.5, // Reduced from 0.9 to allow more movement
-                            angularDamping: 0.5, // Added to allow more rotation
+                            linearDamping: 0.5,
+                            angularDamping: 0.5,
                         });
 
-                        // Add initial velocity for more movement
                         const initialVelocity = new CANNON.Vec3(
                             (Math.random() - 0.5) * 10,
                             0,
@@ -780,33 +796,34 @@
                         body.velocity.copy(initialVelocity);
 
                         body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-                        console.log(`${body.quaternion}`)
                         world.addBody(body);
                         sphereWireframe.userData.physicsBody = body;
-
                         mesh.userData.physicsBody = body;
-                        console.log(`Physics body set for model: ${file.name}`, mesh.userData);
+                        const physicsTime = performance.now() - physicsStart;
+                        updateDebugOverlay(`Physics body created (${physicsTime.toFixed(2)}ms)`);
 
+                        const sceneAddStart = performance.now();
                         scene.add(mesh);
                         loadedModels.push(mesh);
-
-                        console.log(`Model added to scene: ${file.name}`);
-                        console.log(`Total models in scene: ${loadedModels.length}`);
+                        const sceneAddTime = performance.now() - sceneAddStart;
+                        updateDebugOverlay(`Model added to scene (${sceneAddTime.toFixed(2)}ms)`);
 
                         loadedModelCount++;
+                        const totalTime = performance.now() - startTime;
+                        updateDebugOverlay(`Model ${file.name} fully loaded (${totalTime.toFixed(2)}ms)`);
                         resolve();
                     },
                     (xhr) => {
-                        console.log(`${file.name} ${(xhr.loaded / xhr.total * 100)}% loaded`);
+                        const progress = xhr.loaded / xhr.total * 100;
+                        updateDebugOverlay(`${file.name} ${progress.toFixed(2)}% loaded`);
                     },
                     (error) => {
-                        console.error(`Error loading ${file.name}:`, error);
+                        updateDebugOverlay(`Error loading ${file.name}: ${error}`);
                         loadedModelCount++;
                         reject(error);
                     }
                 );
             });
-            
         }
 
         function animate() {
