@@ -215,26 +215,64 @@
 
         async function fetchAllFiles(owner, repo, path = '') {
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-            const response = await fetch(apiUrl);
-            const data = await response.json();
             
-            let allFiles = [];
-            
-            for (const item of data) {
-                if (item.type === 'file') {
-                    if (item.name.toLowerCase().endsWith('.stl')) {
-                        allFiles.push({
-                            name: item.path,
-                            url: item.download_url
-                        });
+            let token = localStorage.getItem('github_pat');
+            let response;
+
+            try {
+                response = await fetch(apiUrl, {
+                    headers: token ? { 'Authorization': `token ${token}` } : {}
+                });
+
+                if (response.status === 403) {
+                    throw new Error('Rate limited');
+                }
+
+                const data = await response.json();
+                
+                let allFiles = [];
+                
+                for (const item of data) {
+                    if (item.type === 'file') {
+                        if (item.name.toLowerCase().endsWith('.stl')) {
+                            allFiles.push({
+                                name: item.path,
+                                url: item.download_url
+                            });
+                        }
+                    } else if (item.type === 'dir') {
+                        const subFiles = await fetchAllFiles(owner, repo, item.path);
+                        allFiles = allFiles.concat(subFiles);
                     }
-                } else if (item.type === 'dir') {
-                    const subFiles = await fetchAllFiles(owner, repo, item.path);
-                    allFiles = allFiles.concat(subFiles);
+                }
+                
+                return allFiles;
+            } catch (error) {
+                if (error.message === 'Rate limited') {
+                    const userToken = await promptForPAT();
+                    if (userToken) {
+                        localStorage.setItem('github_pat', userToken);
+                        return fetchAllFiles(owner, repo, path); // Retry with the new token
+                    } else {
+                        throw new Error('GitHub API rate limit reached. Unable to fetch files without a valid token.');
+                    }
+                } else {
+                    throw error;
                 }
             }
-            
-            return allFiles;
+        }
+
+        function promptForPAT() {
+            return new Promise((resolve) => {
+                const message = `
+                    GitHub API rate limit reached. 
+                    Please provide a Personal Access Token (PAT) to continue.
+                    You can create a PAT at https://github.com/settings/tokens
+                    (No additional scopes are needed for public repositories)
+                `;
+                const userInput = prompt(message);
+                resolve(userInput);
+            });
         }
 
         function initScene(container) {
@@ -1017,7 +1055,10 @@
                 window.addEventListener('resize', handleResize);
             } catch (error) {
                 console.error('Error fetching STL files:', error);
-                document.getElementById('gallery').innerHTML = '<p>Error loading STL files. Please check the console for details.</p>';
+                document.getElementById('gallery').innerHTML = `
+                    <p>Error loading STL files: ${error.message}</p>
+                    <p>Please refresh the page to try again.</p>
+                `;
             }
         }
 
