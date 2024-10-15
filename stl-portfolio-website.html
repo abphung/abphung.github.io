@@ -642,27 +642,24 @@
 
         function handleDoubleClick(event) {
             try{
-                const rect = renderer.domElement.getBoundingClientRect();
-                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-                raycaster.setFromCamera(mouse, camera);
-
-                const intersectedSphere = boundingSpheres.find(({ sphere }) => raycaster.ray.intersectsSphere(sphere));
-
-                if (intersectedSphere) {
-                    const intersectedObject = intersectedSphere.model;
-                    updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
-                    if (isZoomedIn && intersectedObject === zoomedModel) {
-                        zoomOut();
-                    } else {
-                        zoomIn(intersectedObject);
-                    }
-                } else if (isZoomedIn) {
-                    updateDebugOverlay('Double Click<br>Zooming Out');
+                if (isZoomedIn){
                     zoomOut();
                 } else {
-                    updateDebugOverlay('Double Click<br>No Object Intersected');
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+                    raycaster.setFromCamera(mouse, camera);
+
+                    const intersectedSphere = boundingSpheres.find(({ sphere }) => raycaster.ray.intersectsSphere(sphere));
+
+                    if (intersectedSphere) {
+                        const intersectedObject = intersectedSphere.model;
+                        updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
+                        zoomIn(intersectedObject);
+                    } else {
+                        updateDebugOverlay('Double Click<br>No Object Intersected');
+                    }
                 }
             } catch (error) {
                 updateDebugOverlay(`${error}`);
