@@ -134,6 +134,59 @@
         let lastCameraPosition = new THREE.Vector3();
         let lastCameraQuaternion = new THREE.Quaternion();
 
+        let blogPostOverlay;
+        let blogPostTimeout;
+        let isBlogPostVisible = false;
+        let lastInteractionTime = 0;
+
+        // Create the blog post overlay
+        function createBlogPostOverlay() {
+            blogPostOverlay = document.createElement('div');
+            blogPostOverlay.style.position = 'absolute';
+            blogPostOverlay.style.top = '10%';
+            blogPostOverlay.style.left = '10%';
+            blogPostOverlay.style.width = '80%';
+            blogPostOverlay.style.height = '80%';
+            blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            blogPostOverlay.style.color = 'white';
+            blogPostOverlay.style.padding = '20px';
+            blogPostOverlay.style.overflow = 'auto';
+            blogPostOverlay.style.display = 'none';
+            blogPostOverlay.style.pointerEvents = 'none';  // Allow interactions to pass through
+            document.body.appendChild(blogPostOverlay);
+        }
+
+        // Show the blog post overlay
+        function showBlogPost(model) {
+            if (!blogPostOverlay) createBlogPostOverlay();
+            
+            // Generate or fetch blog post content based on the model
+            const blogPostContent = generateBlogPost(model);
+            
+            blogPostOverlay.innerHTML = blogPostContent;
+            blogPostOverlay.style.display = 'block';
+            isBlogPostVisible = true;
+        }
+
+        // Hide the blog post overlay
+        function hideBlogPost() {
+            if (blogPostOverlay) {
+                blogPostOverlay.style.display = 'none';
+                isBlogPostVisible = false;
+            }
+        }
+
+        // Generate blog post content (replace this with your actual content generation logic)
+        function generateBlogPost(model) {
+            return `
+                <h2>${model.userData.fileName}</h2>
+                <p>This is a blog post about ${model.userData.fileName}. 
+                It's a fascinating 3D model with many interesting features...</p>
+                <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+                Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua...</p>
+            `;
+        }
+
         function getRandomColor() {
             return colorPalette[Math.floor(Math.random() * colorPalette.length)];
         }
@@ -317,7 +370,11 @@
 
         function handleStart(event) {
             try {
-                // If zoomed in, don't allow dragging models
+                if (isZoomedIn && isBlogPostVisible) {
+                    hideBlogPost();
+                }
+                lastInteractionTime = Date.now();
+
                 if (isZoomedIn) return;
 
                 const rect = renderer.domElement.getBoundingClientRect();
@@ -433,7 +490,10 @@
 
         function handleEnd(event) {
             try{
-                if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
+                if (isZoomedIn) {
+                    startBlogPostTimer();
+                }
+                else if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
                     isDragging = false;
                     const physicsBody = draggedModel.userData.physicsBody;
                     
@@ -453,8 +513,6 @@
 
                     draggedModel = null;
                     draggedModelRadius = 0;
-                } else if (isDragging) {
-                    console.error('Invalid draggedModel or physicsBody in onMouseUp');
                 }
 
                 isDragging = false;
@@ -469,6 +527,15 @@
             } catch (error) {
                 updateDebugOverlay(`${error}`);
             }
+        }
+
+        function startBlogPostTimer() {
+            clearTimeout(blogPostTimeout);
+            blogPostTimeout = setTimeout(() => {
+                if (isZoomedIn && !isBlogPostVisible && Date.now() - lastInteractionTime >= 10000) {
+                    showBlogPost(zoomedModel);
+                }
+            }, 10000);
         }
 
         function updateHover() {
@@ -555,6 +622,9 @@
             zoomedModel = model;
             hoverTooltip.style.display = 'none';
 
+            showBlogPost(model);
+            lastInteractionTime = Date.now();
+
             const physicsBody = zoomedModel.userData.physicsBody;
             physicsBody.velocity.set(0, 0, 0);
             physicsBody.angularVelocity.set(0, 0, 0);
@@ -591,6 +661,9 @@
             fadeInObjects = loadedModels.filter(obj => obj !== zoomedModel);
             isZoomedIn = false;
             zoomedModel = null;
+
+            hideBlogPost();
+            clearTimeout(blogPostTimeout);
 
             // Start fading in objects
             fadeObjects(fadeInObjects, 0, 1);
@@ -766,7 +839,8 @@
                         const material = new THREE.MeshPhongMaterial({ 
                             color: new THREE.Color(getRandomColor()),
                             specular: 0x111111, 
-                            shininess: 30
+                            shininess: 30,
+                            transparent: isZoomedIn
                         });
                         const materialTime = performance.now() - materialStart;
                         updateDebugOverlay(`Material created (${materialTime.toFixed(2)}ms)`);
@@ -821,13 +895,13 @@
                         sphereWireframe.userData.physicsBody = body;
                         mesh.userData.physicsBody = body;
                         const physicsTime = performance.now() - physicsStart;
-                        updateDebugOverlay(`Physics body created (${physicsTime.toFixed(2)}ms)`);
+                        //updateDebugOverlay(`Physics body created (${physicsTime.toFixed(2)}ms)`);
 
                         const sceneAddStart = performance.now();
                         scene.add(mesh);
                         loadedModels.push(mesh);
                         const sceneAddTime = performance.now() - sceneAddStart;
-                        updateDebugOverlay(`Model added to scene (${sceneAddTime.toFixed(2)}ms)`);
+                        //updateDebugOverlay(`Model added to scene (${sceneAddTime.toFixed(2)}ms)`);
 
                         loadedModelCount++;
                         const totalTime = performance.now() - startTime;
@@ -868,6 +942,9 @@
             lastCameraPosition.copy(camera.position);
             lastCameraQuaternion.copy(camera.quaternion);
 
+            if (isZoomedIn && !isBlogPostVisible && Date.now() - lastInteractionTime >= 10000) {
+                showBlogPost(zoomedModel);
+            }
 
             for (let i = 0; i < loadedModels.length; i++) {
                 const mesh = loadedModels[i];
