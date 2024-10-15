@@ -44,6 +44,14 @@
     </style>
 </head>
 <body>
+    <antArtifact identifier="pat-input-html" type="text/html" title="PAT Input HTML">
+    <div id="pat-input-container" style="display: none; margin: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+      <p>GitHub API rate limit reached. Please provide a Personal Access Token (PAT) to continue.</p>
+      <p>You can create a PAT at <a href="https://github.com/settings/tokens" target="_blank">https://github.com/settings/tokens</a></p>
+      <p>(No additional scopes are needed for public repositories)</p>
+      <input type="text" id="pat-input" placeholder="Enter your PAT here" style="width: 100%; padding: 5px; margin-bottom: 10px;">
+      <button id="pat-submit">Submit</button>
+    </div>
     <div id="container">
         <div id="hoverTooltip" style="display: none; position: absolute; background-color: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 5px; font-size: 14px;"></div>
         <div id="gallery">
@@ -214,6 +222,13 @@
         }
 
         async function fetchAllFiles(owner, repo, path = '') {
+            const cacheKey = `${owner}-${repo}-${path}`;
+            const cachedData = localStorage.getItem(cacheKey);
+            
+            if (cachedData) {
+                return JSON.parse(cachedData);
+            }
+
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
             
             let token = localStorage.getItem('github_pat');
@@ -229,6 +244,7 @@
                 }
 
                 const data = await response.json();
+                localStorage.setItem(cacheKey, JSON.stringify(data));
                 
                 let allFiles = [];
                 
@@ -264,14 +280,18 @@
 
         function promptForPAT() {
             return new Promise((resolve) => {
-                const message = `
-                    GitHub API rate limit reached. 
-                    Please provide a Personal Access Token (PAT) to continue.
-                    You can create a PAT at https://github.com/settings/tokens
-                    (No additional scopes are needed for public repositories)
-                `;
-                const userInput = prompt(message);
-                resolve(userInput);
+                const container = document.getElementById('pat-input-container');
+                const input = document.getElementById('pat-input');
+                const submit = document.getElementById('pat-submit');
+
+                container.style.display = 'block';
+
+                submit.onclick = () => {
+                    const token = input.value.trim();
+                    container.style.display = 'none';
+                    input.value = '';
+                    resolve(token);
+                };
             });
         }
 
