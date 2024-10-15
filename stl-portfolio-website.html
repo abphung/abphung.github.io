@@ -44,7 +44,7 @@
     </style>
 </head>
 <body>
-    <antArtifact identifier="pat-input-html" type="text/html" title="PAT Input HTML">
+    <antArtifact identifier="pat-input-html" type="text/html">
     <div id="pat-input-container" style="display: none; margin: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
       <p>GitHub API rate limit reached. Please provide a Personal Access Token (PAT) to continue.</p>
       <p>You can create a PAT at <a href="https://github.com/settings/tokens" target="_blank">https://github.com/settings/tokens</a></p>
@@ -150,20 +150,21 @@
         const LONG_PRESS_DURATION = 1500; // 2 seconds for long press
         const BLOG_REAPPEAR_THRESHHOLD_MS = 5000;
 
-        // Create the blog post overlay
         function createBlogPostOverlay() {
             blogPostOverlay = document.createElement('div');
-            blogPostOverlay.style.position = 'absolute';
-            blogPostOverlay.style.top = '10%';
-            blogPostOverlay.style.left = '10%';
-            blogPostOverlay.style.width = '80%';
-            blogPostOverlay.style.height = '80%';
+            blogPostOverlay.style.position = 'fixed';
+            blogPostOverlay.style.top = '0';
+            blogPostOverlay.style.left = '0';
+            blogPostOverlay.style.width = '100vw';
+            blogPostOverlay.style.height = '100vh';
             blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
             blogPostOverlay.style.color = 'white';
             blogPostOverlay.style.padding = '20px';
+            blogPostOverlay.style.boxSizing = 'border-box';
             blogPostOverlay.style.overflow = 'auto';
             blogPostOverlay.style.display = 'none';
-            blogPostOverlay.style.pointerEvents = 'none';  // Allow interactions to pass through
+            blogPostOverlay.style.pointerEvents = 'none';
+            blogPostOverlay.style.zIndex = '1000';  // Ensure it's on top of other elements
             document.body.appendChild(blogPostOverlay);
         }
 
@@ -176,6 +177,7 @@
             
             blogPostOverlay.innerHTML = blogPostContent;
             blogPostOverlay.style.display = 'block';
+            document.body.style.overflow = 'hidden';  // Prevent scrolling of the main content
             isBlogPostVisible = true;
         }
 
@@ -183,11 +185,12 @@
         function hideBlogPost() {
             if (blogPostOverlay) {
                 blogPostOverlay.style.display = 'none';
+                document.body.style.overflow = '';  // Restore scrolling of the main content
                 isBlogPostVisible = false;
             }
         }
 
-        // Generate blog post content (replace this with your actual content generation logic)
+        // Generate blog post content (unchanged)
         function generateBlogPost(model) {
             return `
                 <h2>${model.userData.fileName}</h2>
