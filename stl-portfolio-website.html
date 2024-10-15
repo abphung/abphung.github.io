@@ -105,6 +105,7 @@
         let lastHoverUpdateTime = 0;
         const HOVER_UPDATE_INTERVAL = 400;
 
+        //used to zooming in/out
         let previousCameraState = {
             position: new THREE.Vector3(),
             target: new THREE.Vector3()
@@ -127,6 +128,11 @@
 
         let modelLoadQueue = [];
         let isLoadingModel = false;
+
+        //used to detirmine if the camera is moving
+        let isCameraMoving = false;
+        let lastCameraPosition = new THREE.Vector3();
+        let lastCameraQuaternion = new THREE.Quaternion();
 
         function getRandomColor() {
             return colorPalette[Math.floor(Math.random() * colorPalette.length)];
@@ -465,9 +471,11 @@
             }
         }
 
-        // New function to handle hover updates
         function updateHover() {
-            if (isZoomedIn) return;
+            if (isZoomedIn || isCameraMoving) {
+                hoverTooltip.style.display = 'none';
+                return;
+            }
 
             if (!isHoverUpdatePending) return;
             
@@ -483,7 +491,6 @@
             if (intersectedSphere) {
                 const intersectedObject = intersectedSphere.model;
                 const modelName = intersectedObject.userData.fileName || 'Unknown Model';
-                console.log(`hovering over model: ${modelName}`, intersectedObject.userData, loadedModels)
                 hoverTooltip.textContent = modelName;
                 hoverTooltip.style.display = 'block';
             } else {
@@ -546,6 +553,7 @@
 
             isZoomedIn = true;
             zoomedModel = model;
+            hoverTooltip.style.display = 'none';
 
             const physicsBody = zoomedModel.userData.physicsBody;
             physicsBody.velocity.set(0, 0, 0);
@@ -847,6 +855,18 @@
             } catch (error) {
                 console.error('Error in physics simulation step:', error);
             }
+
+            // Check if camera is moving
+            if (!camera.position.equals(lastCameraPosition) || !camera.quaternion.equals(lastCameraQuaternion)) {
+                isCameraMoving = true;
+                hoverTooltip.style.display = 'none';
+            } else {
+                isCameraMoving = false;
+            }
+
+            // Update last camera position and quaternion
+            lastCameraPosition.copy(camera.position);
+            lastCameraQuaternion.copy(camera.quaternion);
 
 
             for (let i = 0; i < loadedModels.length; i++) {
