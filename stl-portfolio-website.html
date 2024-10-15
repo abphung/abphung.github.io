@@ -147,7 +147,8 @@
         let isBlogPostVisible = false;
         let lastInteractionTime = 0;
         let longPressTimer;
-        const LONG_PRESS_DURATION = 2000; // 2 seconds for long press
+        const LONG_PRESS_DURATION = 1500; // 2 seconds for long press
+        const BLOG_REAPPEAR_THRESHHOLD_MS = 5000;
 
         // Create the blog post overlay
         function createBlogPostOverlay() {
@@ -602,10 +603,10 @@
         function startBlogPostTimer() {
             clearTimeout(blogPostTimeout);
             blogPostTimeout = setTimeout(() => {
-                if (isZoomedIn && !isBlogPostVisible && Date.now() - lastInteractionTime >= 10000) {
+                if (isZoomedIn && !isBlogPostVisible && Date.now() - lastInteractionTime >= BLOG_REAPPEAR_THRESHHOLD_MS) {
                     showBlogPost(zoomedModel);
                 }
-            }, 10000);
+            }, BLOG_REAPPEAR_THRESHHOLD_MS);
         }
 
         function updateHover() {
@@ -863,7 +864,7 @@
                 transparent: true
             });
             sphereWireframe.visible = !isZoomedIn;
-            
+
             const cannonShape = new CANNON.Sphere(radius);
 
             return { visual: sphereWireframe, physical: cannonShape, radius: radius };
