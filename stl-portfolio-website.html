@@ -142,51 +142,100 @@
         let lastCameraPosition = new THREE.Vector3();
         let lastCameraQuaternion = new THREE.Quaternion();
 
-        let blogPostOverlay;
-        let blogPostTimeout;
         let isBlogPostVisible = false;
-        let lastInteractionTime = 0;
-        let longPressTimer;
-        const LONG_PRESS_DURATION = 1500; // 2 seconds for long press
-        const BLOG_REAPPEAR_THRESHHOLD_MS = 5000;
+
+        let blogPostOverlay, toggleButton, isNarrowScreen;
 
         function createBlogPostOverlay() {
             blogPostOverlay = document.createElement('div');
             blogPostOverlay.style.position = 'fixed';
             blogPostOverlay.style.top = '0';
             blogPostOverlay.style.left = '0';
-            blogPostOverlay.style.width = '100vw';
-            blogPostOverlay.style.height = '100vh';
+            blogPostOverlay.style.height = '100%';
             blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
             blogPostOverlay.style.color = 'white';
             blogPostOverlay.style.padding = '20px';
             blogPostOverlay.style.boxSizing = 'border-box';
             blogPostOverlay.style.overflow = 'auto';
             blogPostOverlay.style.display = 'none';
-            blogPostOverlay.style.pointerEvents = 'none';
-            blogPostOverlay.style.zIndex = '1000';  // Ensure it's on top of other elements
+            blogPostOverlay.style.zIndex = '1000';
+
+            toggleButton = document.createElement('button');
+            toggleButton.textContent = 'Toggle Blog Post';
+            toggleButton.style.position = 'fixed';
+            toggleButton.style.top = '10px';
+            toggleButton.style.right = '10px';
+            toggleButton.style.zIndex = '1001';
+            toggleButton.addEventListener('click', toggleBlogPost);
+
             document.body.appendChild(blogPostOverlay);
+            document.body.appendChild(toggleButton);
+
+            window.addEventListener('resize', adjustLayout);
+            adjustLayout();
         }
 
-        // Show the blog post overlay
+        function adjustLayout() {
+            isNarrowScreen = window.innerWidth < 768; // Adjust this breakpoint as needed
+            if (isNarrowScreen) {
+                blogPostOverlay.style.width = '100%';
+            } else {
+                blogPostOverlay.style.width = '30%'; // Adjust this percentage as needed
+            }
+            if (blogPostOverlay.style.display !== 'none') {
+                adjustRendererSize();
+            }
+        }
+
+        function adjustRendererSize() {
+            const width = isNarrowScreen ? window.innerWidth : window.innerWidth * 0.7; // Adjust this percentage as needed
+            const height = window.innerHeight;
+            renderer.setSize(width, height);
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.domElement.style.position = 'fixed';
+            renderer.domElement.style.right = '0';
+            renderer.domElement.style.top = '0';
+        }
+
+        function toggleBlogPost() {
+            if (blogPostOverlay.style.display === 'none') {
+                showBlogPost(zoomedModel);
+            } else {
+                hideBlogPost();
+            }
+            recenterOnModel(zoomedModel);
+        }
+
         function showBlogPost(model) {
             if (!blogPostOverlay) createBlogPostOverlay();
             
-            // Generate or fetch blog post content based on the model
             const blogPostContent = generateBlogPost(model);
             
             blogPostOverlay.innerHTML = blogPostContent;
             blogPostOverlay.style.display = 'block';
-            document.body.style.overflow = 'hidden';  // Prevent scrolling of the main content
+            adjustRendererSize();
             isBlogPostVisible = true;
         }
 
-        // Hide the blog post overlay
         function hideBlogPost() {
             if (blogPostOverlay) {
                 blogPostOverlay.style.display = 'none';
-                document.body.style.overflow = '';  // Restore scrolling of the main content
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.domElement.style.left = '0';
                 isBlogPostVisible = false;
+            }
+        }
+
+        function recenterOnModel(model) {
+            if (model && model.position) {
+                controls.target.copy(model.position);
+                const distance = camera.position.distanceTo(model.position);
+                const direction = camera.position.clone().sub(model.position).normalize();
+                camera.position.copy(model.position).add(direction.multiplyScalar(distance));
+                controls.update();
             }
         }
 
@@ -435,18 +484,6 @@
 
         function handleStart(event) {
             try {
-                lastInteractionTime = Date.now();
-
-                if (isZoomedIn) {
-                    // Start long press timer
-                    longPressTimer = setTimeout(() => {
-                        if (isBlogPostVisible) {
-                            hideBlogPost();
-                        }
-                    }, LONG_PRESS_DURATION);
-                    return;
-                }
-
                 if (isZoomedIn) return;
 
                 const rect = renderer.domElement.getBoundingClientRect();
@@ -508,6 +545,7 @@
                 }
             } catch (error) {
                 updateDebugOverlay(`Error in handleStart: ${error}`);
+                throw error;
             }
         }
 
@@ -557,17 +595,13 @@
                 }
             } catch (error) {
                 updateDebugOverlay(`Error in handleMove: ${error}`);
+                throw error;
             }
         }
 
         function handleEnd(event) {
             try{
-                clearTimeout(longPressTimer); // Clear the long press timer
-
-                if (isZoomedIn) {
-                    startBlogPostTimer();
-                }
-                else if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
+                if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
                     isDragging = false;
                     const physicsBody = draggedModel.userData.physicsBody;
                     
@@ -600,16 +634,8 @@
                 }, 100);
             } catch (error) {
                 updateDebugOverlay(`${error}`);
+                throw error;
             }
-        }
-
-        function startBlogPostTimer() {
-            clearTimeout(blogPostTimeout);
-            blogPostTimeout = setTimeout(() => {
-                if (isZoomedIn && !isBlogPostVisible && Date.now() - lastInteractionTime >= BLOG_REAPPEAR_THRESHHOLD_MS) {
-                    showBlogPost(zoomedModel);
-                }
-            }, BLOG_REAPPEAR_THRESHHOLD_MS);
         }
 
         function updateHover() {
@@ -694,8 +720,6 @@
             hoverTooltip.style.display = 'none';
 
             showBlogPost(model);
-            lastInteractionTime = Date.now();
-
             const physicsBody = zoomedModel.userData.physicsBody;
             physicsBody.velocity.set(0, 0, 0);
             physicsBody.angularVelocity.set(0, 0, 0);
@@ -734,7 +758,6 @@
             zoomedModel = null;
 
             hideBlogPost();
-            clearTimeout(blogPostTimeout);
 
             // Start fading in objects
             fadeObjects(fadeInObjects, 0, 1);
@@ -1013,10 +1036,6 @@
             // Update last camera position and quaternion
             lastCameraPosition.copy(camera.position);
             lastCameraQuaternion.copy(camera.quaternion);
-
-            if (isZoomedIn && !isBlogPostVisible && Date.now() - lastInteractionTime >= 10000) {
-                showBlogPost(zoomedModel);
-            }
 
             for (let i = 0; i < loadedModels.length; i++) {
                 const mesh = loadedModels[i];
