@@ -150,7 +150,7 @@
             blogPostOverlay = document.createElement('div');
             blogPostOverlay.style.position = 'fixed';
             blogPostOverlay.style.top = '0';
-            blogPostOverlay.style.left = '-30%'; // Start off-screen
+            blogPostOverlay.style.right = '-30%'; // Start off-screen on the right
             blogPostOverlay.style.height = '100%';
             blogPostOverlay.style.width = '30%'; // Adjust as needed
             blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
@@ -159,7 +159,7 @@
             blogPostOverlay.style.boxSizing = 'border-box';
             blogPostOverlay.style.overflow = 'auto';
             blogPostOverlay.style.zIndex = '1000';
-            blogPostOverlay.style.transition = 'left 0.5s ease-in-out'; // Default transition
+            blogPostOverlay.style.transition = 'right 0.5s ease-in-out'; // Changed to right
 
             toggleButton = document.createElement('button');
             toggleButton.textContent = 'Toggle Blog Post';
@@ -173,69 +173,92 @@
             document.body.appendChild(toggleButton);
 
             window.addEventListener('resize', adjustLayout);
-            adjustLayout();
+            adjustLayout(1000);
         }
 
-        function adjustLayout() {
+        function adjustLayout(duration) {
             isNarrowScreen = window.innerWidth < 768; // Adjust this breakpoint as needed
             if (isNarrowScreen) {
                 blogPostOverlay.style.width = '100%';
                 blogPostOverlay.style.height = '50%';
                 blogPostOverlay.style.top = '100%'; // Start off-screen for narrow screens
-                blogPostOverlay.style.left = '0';
-                blogPostOverlay.style.transition = 'top 0.5s ease-in-out'; // Transition for vertical slide
+                blogPostOverlay.style.right = '0';
+                blogPostOverlay.style.transition = `top ${duration}ms ease-in-out`; // Transition for vertical slide
             } else {
                 blogPostOverlay.style.width = '30%'; // Adjust as needed
                 blogPostOverlay.style.height = '100%';
                 blogPostOverlay.style.top = '0';
-                blogPostOverlay.style.transition = 'left 0.5s ease-in-out'; // Transition for horizontal slide
+                blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`; // Changed to right
             }
             adjustRendererSize(1000);
         }
 
         function adjustRendererSize(duration) {
-            const isBlogVisible = blogPostOverlay.style.left === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
-            let width, left;
-
+            const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
+            let targetScale, targetTranslateX;
+            
             if (isNarrowScreen) {
-                width = window.innerWidth;
-                left = 0;
+                targetScale = 1;
+                targetTranslateX = 0;
             } else {
                 if (isBlogVisible) {
-                    width = window.innerWidth * 0.7;
-                    left = window.innerWidth * 0.3;
+                    targetScale = 0.7;
+                    targetTranslateX = 0; // No need to move left anymore
                 } else {
-                    width = window.innerWidth;
-                    left = 0;
+                    targetScale = 1;
+                    targetTranslateX = 0;
                 }
             }
 
             const height = isNarrowScreen && isBlogVisible ? window.innerHeight * 0.5 : window.innerHeight;
-            renderer.setSize(width, height);
-            camera.aspect = width / height;
+            
+            // Always set renderer to full size
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
 
-            renderer.domElement.style.position = 'fixed';
-            renderer.domElement.style.left = `${left}px`;
-            renderer.domElement.style.top = isNarrowScreen && isBlogVisible ? '0' : '0';
-            renderer.domElement.style.width = `${width}px`;
-            renderer.domElement.style.height = `${height}px`;
-            renderer.domElement.style.transition = `left ${duration}ms ease-in-out, width ${duration}ms ease-in-out, height ${duration}ms ease-in-out`;
+            // Animate the transition
+            const startTime = performance.now();
+            const startScale = renderer.domElement.style.transform ? parseFloat(renderer.domElement.style.transform.match(/scale\((.*?)\)/)[1]) || 1 : 1;
+            const startTranslateX = renderer.domElement.style.transform ? parseFloat(renderer.domElement.style.transform.match(/translateX\((.*?)%\)/)[1]) || 0 : 0;
+
+            function animate(currentTime) {
+                const elapsedTime = currentTime - startTime;
+                const progress = Math.min(elapsedTime / duration, 1);
+                
+                const easeProgress = easeInOutCubic(progress);
+                
+                const currentScale = startScale + (targetScale - startScale) * easeProgress;
+                const currentTranslateX = startTranslateX + (targetTranslateX - startTranslateX) * easeProgress;
+                
+                renderer.domElement.style.transform = `translateX(${currentTranslateX * 100}%) scale(${currentScale})`;
+                renderer.domElement.style.transformOrigin = 'left top';
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // Ensure final state is set
+                    renderer.domElement.style.transform = `translateX(${targetTranslateX * 100}%) scale(${targetScale})`;
+                }
+
+                // Render the scene
+                renderer.render(scene, camera);
+            }
+            
+            requestAnimationFrame(animate);
         }
 
         function toggleBlogPost(duration) {
-            const isBlogVisible = blogPostOverlay.style.left === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
+            const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
             
-            blogPostOverlay.style.transition = `${isNarrowScreen ? 'top' : 'left'} ${duration}ms ease-in-out`;
-            renderer.domElement.style.transition = `left ${duration}ms ease-in-out, width ${duration}ms ease-in-out, height ${duration}ms ease-in-out`;
+            blogPostOverlay.style.transition = `${isNarrowScreen ? 'top' : 'right'} ${duration}ms ease-in-out`; // Changed to right
+            renderer.domElement.style.transition = `transform ${duration}ms ease-in-out`;
 
             if (isBlogVisible) {
                 hideBlogPost();
             } else {
                 showBlogPost(zoomedModel);
             }
-
-            recenterOnModel(zoomedModel);
         }
 
         function showBlogPost(model) {
@@ -247,32 +270,22 @@
             if (isNarrowScreen) {
                 blogPostOverlay.style.top = '50%';
             } else {
-                blogPostOverlay.style.left = '0';
+                blogPostOverlay.style.right = '0'; // Changed to right
             }
 
             isBlogPostVisible = true;
-            adjustLayout()
+            adjustLayout(1000)
         }
 
         function hideBlogPost() {
             if (isNarrowScreen) {
                 blogPostOverlay.style.top = '100%';
             } else {
-                blogPostOverlay.style.left = '-30%';
+                blogPostOverlay.style.right = '-30%'; // Changed to right
             }
 
             isBlogPostVisible = false;
-            adjustLayout()
-        }
-
-        function recenterOnModel(model) {
-            if (model && model.position) {
-                controls.target.copy(model.position);
-                const distance = camera.position.distanceTo(model.position);
-                const direction = camera.position.clone().sub(model.position).normalize();
-                camera.position.copy(model.position).add(direction.multiplyScalar(distance));
-                controls.update();
-            }
+            adjustLayout(1000)
         }
 
         // Generate blog post content (unchanged)
