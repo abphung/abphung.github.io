@@ -182,20 +182,36 @@
             } else {
                 blogPostOverlay.style.width = '30%'; // Adjust this percentage as needed
             }
-            if (blogPostOverlay.style.display !== 'none') {
-                adjustRendererSize();
-            }
+            adjustRendererSize();
         }
 
         function adjustRendererSize() {
-            const width = isNarrowScreen ? window.innerWidth : window.innerWidth * 0.7; // Adjust this percentage as needed
+            const isBlogVisible = blogPostOverlay.style.display !== 'none';
+            let width, left;
+
+            if (isNarrowScreen) {
+                width = window.innerWidth;
+                left = 0;
+            } else {
+                if (isBlogVisible) {
+                    width = window.innerWidth * 0.7; // 70% of the screen width
+                    left = window.innerWidth * 0.3; // 30% from the left
+                } else {
+                    width = window.innerWidth;
+                    left = 0;
+                }
+            }
+
             const height = window.innerHeight;
             renderer.setSize(width, height);
             camera.aspect = width / height;
             camera.updateProjectionMatrix();
+
             renderer.domElement.style.position = 'fixed';
-            renderer.domElement.style.right = '0';
+            renderer.domElement.style.left = `${left}px`;
             renderer.domElement.style.top = '0';
+            renderer.domElement.style.width = `${width}px`;
+            renderer.domElement.style.height = '100%';
         }
 
         function toggleBlogPost() {
@@ -221,10 +237,7 @@
         function hideBlogPost() {
             if (blogPostOverlay) {
                 blogPostOverlay.style.display = 'none';
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.domElement.style.left = '0';
+                adjustRendererSize();
                 isBlogPostVisible = false;
             }
         }
