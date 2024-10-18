@@ -150,15 +150,16 @@
             blogPostOverlay = document.createElement('div');
             blogPostOverlay.style.position = 'fixed';
             blogPostOverlay.style.top = '0';
-            blogPostOverlay.style.left = '0';
+            blogPostOverlay.style.left = '-30%'; // Start off-screen
             blogPostOverlay.style.height = '100%';
+            blogPostOverlay.style.width = '30%'; // Adjust as needed
             blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
             blogPostOverlay.style.color = 'white';
             blogPostOverlay.style.padding = '20px';
             blogPostOverlay.style.boxSizing = 'border-box';
             blogPostOverlay.style.overflow = 'auto';
-            blogPostOverlay.style.display = 'none';
             blogPostOverlay.style.zIndex = '1000';
+            blogPostOverlay.style.transition = 'left 0.5s ease-in-out'; // Default transition
 
             toggleButton = document.createElement('button');
             toggleButton.textContent = 'Toggle Blog Post';
@@ -166,7 +167,7 @@
             toggleButton.style.top = '10px';
             toggleButton.style.right = '10px';
             toggleButton.style.zIndex = '1001';
-            toggleButton.addEventListener('click', toggleBlogPost);
+            toggleButton.addEventListener('click', () => toggleBlogPost(1000)); // 1 second duration
 
             document.body.appendChild(blogPostOverlay);
             document.body.appendChild(toggleButton);
@@ -179,14 +180,21 @@
             isNarrowScreen = window.innerWidth < 768; // Adjust this breakpoint as needed
             if (isNarrowScreen) {
                 blogPostOverlay.style.width = '100%';
+                blogPostOverlay.style.height = '50%';
+                blogPostOverlay.style.top = '100%'; // Start off-screen for narrow screens
+                blogPostOverlay.style.left = '0';
+                blogPostOverlay.style.transition = 'top 0.5s ease-in-out'; // Transition for vertical slide
             } else {
-                blogPostOverlay.style.width = '30%'; // Adjust this percentage as needed
+                blogPostOverlay.style.width = '30%'; // Adjust as needed
+                blogPostOverlay.style.height = '100%';
+                blogPostOverlay.style.top = '0';
+                blogPostOverlay.style.transition = 'left 0.5s ease-in-out'; // Transition for horizontal slide
             }
-            adjustRendererSize();
+            adjustRendererSize(1000);
         }
 
-        function adjustRendererSize() {
-            const isBlogVisible = blogPostOverlay.style.display !== 'none';
+        function adjustRendererSize(duration) {
+            const isBlogVisible = blogPostOverlay.style.left === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
             let width, left;
 
             if (isNarrowScreen) {
@@ -194,32 +202,39 @@
                 left = 0;
             } else {
                 if (isBlogVisible) {
-                    width = window.innerWidth * 0.7; // 70% of the screen width
-                    left = window.innerWidth * 0.3; // 30% from the left
+                    width = window.innerWidth * 0.7;
+                    left = window.innerWidth * 0.3;
                 } else {
                     width = window.innerWidth;
                     left = 0;
                 }
             }
 
-            const height = window.innerHeight;
+            const height = isNarrowScreen && isBlogVisible ? window.innerHeight * 0.5 : window.innerHeight;
             renderer.setSize(width, height);
             camera.aspect = width / height;
             camera.updateProjectionMatrix();
 
             renderer.domElement.style.position = 'fixed';
             renderer.domElement.style.left = `${left}px`;
-            renderer.domElement.style.top = '0';
+            renderer.domElement.style.top = isNarrowScreen && isBlogVisible ? '0' : '0';
             renderer.domElement.style.width = `${width}px`;
-            renderer.domElement.style.height = '100%';
+            renderer.domElement.style.height = `${height}px`;
+            renderer.domElement.style.transition = `left ${duration}ms ease-in-out, width ${duration}ms ease-in-out, height ${duration}ms ease-in-out`;
         }
 
-        function toggleBlogPost() {
-            if (blogPostOverlay.style.display === 'none') {
-                showBlogPost(zoomedModel);
-            } else {
+        function toggleBlogPost(duration) {
+            const isBlogVisible = blogPostOverlay.style.left === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
+            
+            blogPostOverlay.style.transition = `${isNarrowScreen ? 'top' : 'left'} ${duration}ms ease-in-out`;
+            renderer.domElement.style.transition = `left ${duration}ms ease-in-out, width ${duration}ms ease-in-out, height ${duration}ms ease-in-out`;
+
+            if (isBlogVisible) {
                 hideBlogPost();
+            } else {
+                showBlogPost(zoomedModel);
             }
+
             recenterOnModel(zoomedModel);
         }
 
@@ -227,19 +242,25 @@
             if (!blogPostOverlay) createBlogPostOverlay();
             
             const blogPostContent = generateBlogPost(model);
-            
             blogPostOverlay.innerHTML = blogPostContent;
-            blogPostOverlay.style.display = 'block';
-            adjustRendererSize();
+
+            if (isNarrowScreen) {
+                blogPostOverlay.style.top = '50%';
+            } else {
+                blogPostOverlay.style.left = '0';
+            }
+
             isBlogPostVisible = true;
         }
 
         function hideBlogPost() {
-            if (blogPostOverlay) {
-                blogPostOverlay.style.display = 'none';
-                adjustRendererSize();
-                isBlogPostVisible = false;
+            if (isNarrowScreen) {
+                blogPostOverlay.style.top = '100%';
+            } else {
+                blogPostOverlay.style.left = '-30%';
             }
+
+            isBlogPostVisible = false;
         }
 
         function recenterOnModel(model) {
@@ -935,35 +956,27 @@
         function loadSTLModel(file, index, count = 1, i = 0) {
             return new Promise((resolve, reject) => {
                 const startTime = performance.now();
-                updateDebugOverlay(`Starting to load model: ${file.name}`);
-                
                 loader.load(
                     file.url,
                     (geometry) => {
                         const geometryLoadTime = performance.now() - startTime;
-                        updateDebugOverlay(`Geometry loaded: ${file.name} (${geometryLoadTime.toFixed(2)}ms)`);
+                        //updateDebugOverlay(`Geometry loaded: ${file.name} (${geometryLoadTime.toFixed(2)}ms)`);
 
-                        const materialStart = performance.now();
                         const material = new THREE.MeshPhongMaterial({ 
                             color: new THREE.Color(getRandomColor()),
                             specular: 0x111111, 
                             shininess: 30
                         });
-                        const materialTime = performance.now() - materialStart;
-                        updateDebugOverlay(`Material created (${materialTime.toFixed(2)}ms)`);
 
-                        const meshStart = performance.now();
                         const mesh = new THREE.Mesh(geometry, material);
                         mesh.userData.fileName = `${file.name} (${i+1})`;
                         mesh.visible = !isZoomedIn;
-                        const meshTime = performance.now() - meshStart;
-                        updateDebugOverlay(`Mesh created (${meshTime.toFixed(2)}ms)`);
 
                         const geometryProcessStart = performance.now();
                         geometry.center();
                         mesh.rotation.x = -Math.PI / 2;
                         const geometryProcessTime = performance.now() - geometryProcessStart;
-                        updateDebugOverlay(`Geometry processed (${geometryProcessTime.toFixed(2)}ms)`);
+                        //updateDebugOverlay(`Geometry processed (${geometryProcessTime.toFixed(2)}ms)`);
 
                         const boundingSphereStart = performance.now();
                         const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, 1);
@@ -975,7 +988,7 @@
                         const boundingSphere = new THREE.Sphere(mesh.position.clone(), radius);
                         boundingSpheres.push({ sphere: boundingSphere, model: mesh });
                         const boundingSphereTime = performance.now() - boundingSphereStart;
-                        updateDebugOverlay(`Bounding sphere created (${boundingSphereTime.toFixed(2)}ms)`);
+                        //updateDebugOverlay(`Bounding sphere created (${boundingSphereTime.toFixed(2)}ms)`);
 
                         const physicsStart = performance.now();
                         const spawnHeight = 500 + (index * count + i) * 10;
@@ -1013,12 +1026,12 @@
 
                         loadedModelCount++;
                         const totalTime = performance.now() - startTime;
-                        updateDebugOverlay(`Model ${file.name} fully loaded (${totalTime.toFixed(2)}ms)`);
+                        //updateDebugOverlay(`Model ${file.name} fully loaded (${totalTime.toFixed(2)}ms)`);
                         resolve();
                     },
                     (xhr) => {
                         const progress = xhr.loaded / xhr.total * 100;
-                        updateDebugOverlay(`${file.name} ${progress.toFixed(2)}% loaded`);
+                        //updateDebugOverlay(`${file.name} ${progress.toFixed(2)}% loaded`);
                     },
                     (error) => {
                         updateDebugOverlay(`Error loading ${file.name}: ${error}`);
