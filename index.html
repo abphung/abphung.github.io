@@ -146,20 +146,20 @@
 
         let blogPostOverlay, toggleButton, isNarrowScreen;
 
-        function createBlogPostOverlay() {
+        function createBlogPostOverlay(duration) {
             blogPostOverlay = document.createElement('div');
             blogPostOverlay.style.position = 'fixed';
             blogPostOverlay.style.top = '0';
-            blogPostOverlay.style.right = '-30%'; // Start off-screen on the right
+            blogPostOverlay.style.right = '-30%';
             blogPostOverlay.style.height = '100%';
-            blogPostOverlay.style.width = '30%'; // Adjust as needed
+            blogPostOverlay.style.width = '30%';
             blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
             blogPostOverlay.style.color = 'white';
             blogPostOverlay.style.padding = '20px';
             blogPostOverlay.style.boxSizing = 'border-box';
             blogPostOverlay.style.overflow = 'auto';
             blogPostOverlay.style.zIndex = '1000';
-            blogPostOverlay.style.transition = 'right 0.5s ease-in-out'; // Changed to right
+            blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`;
 
             toggleButton = document.createElement('button');
             toggleButton.textContent = 'Toggle Blog Post';
@@ -181,12 +181,12 @@
             if (isBlogVisible) {
                 hideBlogPost();
             } else {
-                showBlogPost(zoomedModel);
+                showBlogPost(zoomedModel, duration);
             }
         }
 
-        function showBlogPost(model) {
-            if (!blogPostOverlay) createBlogPostOverlay();
+        function showBlogPost(model, duration) {
+            if (!blogPostOverlay) createBlogPostOverlay(duration);
             
             const blogPostContent = generateBlogPost(model);
             blogPostOverlay.innerHTML = blogPostContent;
@@ -197,6 +197,10 @@
                 blogPostOverlay.style.right = '0'; // Changed to right
             }
 
+            setTimeout(() => {
+                toggleButton.style.display = 'block';
+            }, duration);
+
             isBlogPostVisible = true;
         }
 
@@ -205,6 +209,10 @@
                 blogPostOverlay.style.top = '100%';
             } else {
                 blogPostOverlay.style.right = '-30%'; // Changed to right
+            }
+
+            if (!isZoomedIn){
+                toggleButton.style.display = 'none';
             }
 
             isBlogPostVisible = false;
