@@ -805,7 +805,7 @@
         }
 
         function animateCamera(targetPosition, targetLookAt, duration, callback) {
-            //adjust layout
+            // Adjust layout
             isNarrowScreen = window.innerWidth < 768; // Adjust this breakpoint as needed
             if (isNarrowScreen) {
                 blogPostOverlay.style.width = '100%';
@@ -817,37 +817,24 @@
                 blogPostOverlay.style.width = '30%'; // Adjust as needed
                 blogPostOverlay.style.height = '100%';
                 blogPostOverlay.style.top = '0';
-                blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`; // Changed to right
+                blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`;
             }
 
-            //adjustRendererSize
+            // Determine target renderer size
             const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
-            let targetScale, targetTranslateX;
+            let targetWidth;
             
             if (isNarrowScreen) {
-                targetScale = 1;
-                targetTranslateX = 0;
+                targetWidth = window.innerWidth;
             } else {
-                if (isBlogVisible) {
-                    targetScale = 0.7;
-                    targetTranslateX = 0; // No need to move left anymore
-                } else {
-                    targetScale = 1;
-                    targetTranslateX = 0;
-                }
+                targetWidth = isBlogVisible ? window.innerWidth * 0.7 : window.innerWidth; // 70% width when blog is visible
             }
 
-            const height = isNarrowScreen && isBlogVisible ? window.innerHeight * 0.5 : window.innerHeight;
-            
-            // Always set renderer to full size
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
+            const targetHeight = isNarrowScreen && isBlogVisible ? window.innerHeight * 0.5 : window.innerHeight;
 
-            // Animate the transition
-            const startScale = renderer.domElement.style.transform ? parseFloat(renderer.domElement.style.transform.match(/scale\((.*?)\)/)[1]) || 1 : 1;
-            const startTranslateX = renderer.domElement.style.transform ? parseFloat(renderer.domElement.style.transform.match(/translateX\((.*?)%\)/)[1]) || 0 : 0;
-
+            // Get starting values
+            const startWidth = renderer.domElement.width;
+            const startHeight = renderer.domElement.height;
             const startPosition = camera.position.clone();
             const startLookAt = controls.target.clone();
             const startTime = performance.now();
@@ -859,30 +846,38 @@
                 // Use an easing function for smooth animation
                 const easeProgress = easeInOutCubic(progress);
 
-                const currentScale = startScale + (targetScale - startScale) * easeProgress;
-                const currentTranslateX = startTranslateX + (targetTranslateX - startTranslateX) * easeProgress;
+                // Interpolate renderer size
+                const currentWidth = startWidth + (targetWidth - startWidth) * easeProgress;
+                const currentHeight = startHeight + (targetHeight - startHeight) * easeProgress;
                 
-                renderer.domElement.style.transform = `translateX(${currentTranslateX * 100}%) scale(${currentScale})`;
-                renderer.domElement.style.transformOrigin = 'left top';
+                // Update renderer size
+                renderer.setSize(currentWidth, currentHeight);
+                renderer.render(scene, camera);
+                
+                // Update camera aspect ratio
+                camera.aspect = currentWidth / currentHeight;
+                camera.updateProjectionMatrix();
 
+                // Update camera position and look-at
                 camera.position.lerpVectors(startPosition, targetPosition, easeProgress);
                 controls.target.lerpVectors(startLookAt, targetLookAt, easeProgress);
-                if (zoomedModel){
+
+                // Rotate zoomed model if it exists
+                if (zoomedModel) {
                     const startQuaternion = zoomedModel.quaternion.clone();
                     const targetQuaternion = new THREE.Quaternion();
-                    targetQuaternion.setFromAxisAngle( new THREE.Vector3( -1, 0, 0 ), Math.PI / 2 );
+                    targetQuaternion.setFromAxisAngle(new THREE.Vector3(-1, 0, 0), Math.PI / 2);
                     zoomedModel.quaternion.slerpQuaternions(startQuaternion, targetQuaternion, easeProgress);
                     zoomedModel.userData.physicsBody.quaternion.copy(zoomedModel.quaternion);
                 }
                 
-                camera.updateProjectionMatrix();
                 controls.update();
 
                 if (progress < 1) {
                     requestAnimationFrame(updateCamera);
                 } else {
                     // Ensure final state is set
-                    renderer.domElement.style.transform = `translateX(${targetTranslateX * 100}%) scale(${targetScale})`;
+                    renderer.setSize(targetWidth, targetHeight);
                     if (callback) {
                         callback();
                     }
