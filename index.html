@@ -176,8 +176,7 @@
         function toggleBlogPost(duration) {
             const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
             
-            blogPostOverlay.style.transition = `${isNarrowScreen ? 'top' : 'right'} ${duration}ms ease-in-out`; // Changed to right
-            renderer.domElement.style.transition = `transform ${duration}ms ease-in-out`;
+            blogPostOverlay.style.transition = `${isNarrowScreen ? 'top' : 'right'} ${duration}ms ease-in-out`;
 
             if (isBlogVisible) {
                 hideBlogPost();
