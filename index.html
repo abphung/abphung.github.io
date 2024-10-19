@@ -171,81 +171,6 @@
 
             document.body.appendChild(blogPostOverlay);
             document.body.appendChild(toggleButton);
-
-            window.addEventListener('resize', adjustLayout);
-            adjustLayout(1000);
-        }
-
-        function adjustLayout(duration) {
-            isNarrowScreen = window.innerWidth < 768; // Adjust this breakpoint as needed
-            if (isNarrowScreen) {
-                blogPostOverlay.style.width = '100%';
-                blogPostOverlay.style.height = '50%';
-                blogPostOverlay.style.top = '100%'; // Start off-screen for narrow screens
-                blogPostOverlay.style.right = '0';
-                blogPostOverlay.style.transition = `top ${duration}ms ease-in-out`; // Transition for vertical slide
-            } else {
-                blogPostOverlay.style.width = '30%'; // Adjust as needed
-                blogPostOverlay.style.height = '100%';
-                blogPostOverlay.style.top = '0';
-                blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`; // Changed to right
-            }
-            adjustRendererSize(1000);
-        }
-
-        function adjustRendererSize(duration) {
-            const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
-            let targetScale, targetTranslateX;
-            
-            if (isNarrowScreen) {
-                targetScale = 1;
-                targetTranslateX = 0;
-            } else {
-                if (isBlogVisible) {
-                    targetScale = 0.7;
-                    targetTranslateX = 0; // No need to move left anymore
-                } else {
-                    targetScale = 1;
-                    targetTranslateX = 0;
-                }
-            }
-
-            const height = isNarrowScreen && isBlogVisible ? window.innerHeight * 0.5 : window.innerHeight;
-            
-            // Always set renderer to full size
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-
-            // Animate the transition
-            const startTime = performance.now();
-            const startScale = renderer.domElement.style.transform ? parseFloat(renderer.domElement.style.transform.match(/scale\((.*?)\)/)[1]) || 1 : 1;
-            const startTranslateX = renderer.domElement.style.transform ? parseFloat(renderer.domElement.style.transform.match(/translateX\((.*?)%\)/)[1]) || 0 : 0;
-
-            function animate(currentTime) {
-                const elapsedTime = currentTime - startTime;
-                const progress = Math.min(elapsedTime / duration, 1);
-                
-                const easeProgress = easeInOutCubic(progress);
-                
-                const currentScale = startScale + (targetScale - startScale) * easeProgress;
-                const currentTranslateX = startTranslateX + (targetTranslateX - startTranslateX) * easeProgress;
-                
-                renderer.domElement.style.transform = `translateX(${currentTranslateX * 100}%) scale(${currentScale})`;
-                renderer.domElement.style.transformOrigin = 'left top';
-                
-                if (progress < 1) {
-                    requestAnimationFrame(animate);
-                } else {
-                    // Ensure final state is set
-                    renderer.domElement.style.transform = `translateX(${targetTranslateX * 100}%) scale(${targetScale})`;
-                }
-
-                // Render the scene
-                renderer.render(scene, camera);
-            }
-            
-            requestAnimationFrame(animate);
         }
 
         function toggleBlogPost(duration) {
@@ -274,7 +199,6 @@
             }
 
             isBlogPostVisible = true;
-            adjustLayout(1000)
         }
 
         function hideBlogPost() {
@@ -285,7 +209,6 @@
             }
 
             isBlogPostVisible = false;
-            adjustLayout(1000)
         }
 
         // Generate blog post content (unchanged)
@@ -814,7 +737,7 @@
             fadeObjects(worldObjects, 0, .05);
 
             // Animate camera movement back to previous position
-            animateCamera(previousCameraState.position, previousCameraState.target, 1000, () => {
+            animateCamera(previousCameraState.position, previousCameraState.target, 2000, () => {
                 // After animation, update controls
                 controls.target.copy(previousCameraState.target);
                 controls.update();
@@ -883,6 +806,49 @@
         }
 
         function animateCamera(targetPosition, targetLookAt, duration, callback) {
+            //adjust layout
+            isNarrowScreen = window.innerWidth < 768; // Adjust this breakpoint as needed
+            if (isNarrowScreen) {
+                blogPostOverlay.style.width = '100%';
+                blogPostOverlay.style.height = '50%';
+                blogPostOverlay.style.top = '100%'; // Start off-screen for narrow screens
+                blogPostOverlay.style.right = '0';
+                blogPostOverlay.style.transition = `top ${duration}ms ease-in-out`; // Transition for vertical slide
+            } else {
+                blogPostOverlay.style.width = '30%'; // Adjust as needed
+                blogPostOverlay.style.height = '100%';
+                blogPostOverlay.style.top = '0';
+                blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`; // Changed to right
+            }
+
+            //adjustRendererSize
+            const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
+            let targetScale, targetTranslateX;
+            
+            if (isNarrowScreen) {
+                targetScale = 1;
+                targetTranslateX = 0;
+            } else {
+                if (isBlogVisible) {
+                    targetScale = 0.7;
+                    targetTranslateX = 0; // No need to move left anymore
+                } else {
+                    targetScale = 1;
+                    targetTranslateX = 0;
+                }
+            }
+
+            const height = isNarrowScreen && isBlogVisible ? window.innerHeight * 0.5 : window.innerHeight;
+            
+            // Always set renderer to full size
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+
+            // Animate the transition
+            const startScale = renderer.domElement.style.transform ? parseFloat(renderer.domElement.style.transform.match(/scale\((.*?)\)/)[1]) || 1 : 1;
+            const startTranslateX = renderer.domElement.style.transform ? parseFloat(renderer.domElement.style.transform.match(/translateX\((.*?)%\)/)[1]) || 0 : 0;
+
             const startPosition = camera.position.clone();
             const startLookAt = controls.target.clone();
             const startTime = performance.now();
@@ -893,6 +859,12 @@
 
                 // Use an easing function for smooth animation
                 const easeProgress = easeInOutCubic(progress);
+
+                const currentScale = startScale + (targetScale - startScale) * easeProgress;
+                const currentTranslateX = startTranslateX + (targetTranslateX - startTranslateX) * easeProgress;
+                
+                renderer.domElement.style.transform = `translateX(${currentTranslateX * 100}%) scale(${currentScale})`;
+                renderer.domElement.style.transformOrigin = 'left top';
 
                 camera.position.lerpVectors(startPosition, targetPosition, easeProgress);
                 controls.target.lerpVectors(startLookAt, targetLookAt, easeProgress);
@@ -909,8 +881,12 @@
 
                 if (progress < 1) {
                     requestAnimationFrame(updateCamera);
-                } else if (callback) {
-                    callback();
+                } else {
+                    // Ensure final state is set
+                    renderer.domElement.style.transform = `translateX(${targetTranslateX * 100}%) scale(${targetScale})`;
+                    if (callback) {
+                        callback();
+                    }
                 }
             }
 
