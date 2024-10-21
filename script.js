@@ -83,32 +83,105 @@ let lastCameraQuaternion = new THREE.Quaternion();
 let isBlogPostVisible = false;
 
 let blogPostOverlay, toggleButton, isNarrowScreen;
+let blogPostOverlayStyleWidth = '30%'
 
 function createBlogPostOverlay(duration) {
     blogPostOverlay = document.createElement('div');
     blogPostOverlay.style.position = 'fixed';
     blogPostOverlay.style.top = '0';
-    blogPostOverlay.style.right = '-30%';
+    blogPostOverlay.style.right = '0';
     blogPostOverlay.style.height = '100%';
-    blogPostOverlay.style.width = '30%';
+    blogPostOverlay.style.width = blogPostOverlayStyleWidth;
     blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
     blogPostOverlay.style.color = 'white';
-    blogPostOverlay.style.padding = '20px';
     blogPostOverlay.style.boxSizing = 'border-box';
-    blogPostOverlay.style.overflow = 'auto';
+    blogPostOverlay.style.overflow = 'hidden'; // Changed from 'auto' to 'hidden'
     blogPostOverlay.style.zIndex = '1000';
-    blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`;
+    blogPostOverlay.style.transition = `width ${duration}ms ease-in-out`;
+
+    // Create a content container
+    const contentContainer = document.createElement('div');
+    contentContainer.style.height = '100%';
+    contentContainer.style.width = '100%';
+    contentContainer.style.overflowY = 'auto';
+    contentContainer.style.padding = '20px';
+    blogPostOverlay.appendChild(contentContainer);
+
+    const resizeHandle = document.createElement('div');
+    resizeHandle.style.position = 'absolute';
+    resizeHandle.style.top = '0';
+    resizeHandle.style.left = '0';
+    resizeHandle.style.width = '20px';
+    resizeHandle.style.height = '100%';
+    resizeHandle.style.cursor = 'ew-resize';
+    resizeHandle.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
+    resizeHandle.style.transition = 'background-color 0.3s ease';
+    resizeHandle.style.zIndex = '1'; // Ensure it's above the content
+    blogPostOverlay.appendChild(resizeHandle);
+
+    const handleLine = document.createElement('div');
+    handleLine.style.position = 'absolute';
+    handleLine.style.top = '0';
+    handleLine.style.left = '50%';
+    handleLine.style.width = '4px';
+    handleLine.style.height = '100%';
+    handleLine.style.backgroundColor = 'white';
+    handleLine.style.transform = 'translateX(-50%)';
+    resizeHandle.appendChild(handleLine);
+
+    resizeHandle.addEventListener('mouseover', () => {
+        resizeHandle.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+    });
+
+    resizeHandle.addEventListener('mouseout', () => {
+        resizeHandle.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
+    });
 
     toggleButton = document.createElement('button');
     toggleButton.textContent = 'Toggle Blog Post';
     toggleButton.style.position = 'fixed';
-    toggleButton.style.top = '10px';
-    toggleButton.style.right = '10px';
+    toggleButton.style.top = '20px';
+    toggleButton.style.right = '20px';
     toggleButton.style.zIndex = '1001';
-    toggleButton.addEventListener('click', () => toggleBlogPost(1000)); // 1 second duration
+    toggleButton.addEventListener('click', () => toggleBlogPost(1000));
 
     document.body.appendChild(blogPostOverlay);
     document.body.appendChild(toggleButton);
+
+    let isResizing = false;
+    let startX, startWidth;
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = parseInt(window.getComputedStyle(blogPostOverlay).width, 10);
+        document.addEventListener('mousemove', resize);
+        document.addEventListener('mouseup', stopResize);
+    });
+
+    function resize(e) {
+        if (isResizing) {
+            const width = startWidth - (e.clientX - startX);
+            blogPostOverlayStyleWidth = `${Math.max(200, Math.min(width, window.innerWidth - 100))}px`
+            blogPostOverlay.style.width = blogPostOverlayStyleWidth;
+        }
+    }
+
+    function stopResize() {
+        isResizing = false;
+        document.removeEventListener('mousemove', resize);
+        document.removeEventListener('mouseup', stopResize);
+        const startPosition = camera.position.clone();
+        const startLookAt = controls.target.clone();
+        animateCamera(startPosition, startLookAt, 2000, () => {});
+    }
+
+    // Function to update content
+    blogPostOverlay.updateContent = function(html) {
+        contentContainer.innerHTML = html;
+    };
+
+    return blogPostOverlay;
 }
 
 function toggleBlogPost(duration) {
@@ -131,7 +204,7 @@ function showBlogPost(model, duration) {
     if (!blogPostOverlay) createBlogPostOverlay(duration);
     
     const blogPostContent = generateBlogPost(model);
-    blogPostOverlay.innerHTML = blogPostContent;
+    blogPostOverlay.updateContent(blogPostContent);
 
     if (isNarrowScreen) {
         blogPostOverlay.style.top = '50%';
@@ -150,7 +223,7 @@ function hideBlogPost() {
     if (isNarrowScreen) {
         blogPostOverlay.style.top = '100%';
     } else {
-        blogPostOverlay.style.right = '-30%'; // Changed to right
+        blogPostOverlay.style.right = `-${blogPostOverlayStyleWidth}`;
     }
 
     if (!isZoomedIn){
@@ -160,15 +233,31 @@ function hideBlogPost() {
     isBlogPostVisible = false;
 }
 
-// Generate blog post content (unchanged)
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 function generateBlogPost(model) {
-    return `
-        <h2>${model.userData.fileName}</h2>
-        <p>This is a blog post about ${model.userData.fileName}. 
-        It's a fascinating 3D model with many interesting features...</p>
-        <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-        Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua...</p>
-    `;
+    if (model.userData.scadContent) {
+        const escapedScadContent = escapeHtml(model.userData.scadContent);
+        return `
+            <h2>${escapeHtml(model.userData.fileName)}</h2>
+            <pre><code>${escapedScadContent}</code></pre>
+        `;
+    } else {
+        return `
+            <h2>${escapeHtml(model.name)}</h2>
+            <p>This is a blog post about ${escapeHtml(model.name)}. 
+            It's a fascinating 3D model with many interesting features...</p>
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
+            Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua...</p>
+        `;
+    }
 }
 
 function getRandomColor() {
@@ -204,38 +293,56 @@ async function fetchAllFiles(owner, repo, path = '') {
     if (cachedData) {
         return JSON.parse(cachedData);
     }
-
     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
     
     let token = localStorage.getItem('github_pat');
     let response;
-
     try {
         response = await fetch(apiUrl, {
             headers: token ? { 'Authorization': `token ${token}` } : {}
         });
-
         if (response.status === 403) {
             throw new Error('Rate limited');
         }
-
         const data = await response.json();
         
-        
         let allFiles = [];
+        let stlFiles = [];
+        let scadFiles = [];
         
         for (const item of data) {
             if (item.type === 'file') {
-                if (item.name.toLowerCase().endsWith('.stl')) {
-                    allFiles.push({
+                const lowerName = item.name.toLowerCase();
+                if (lowerName.endsWith('.stl')) {
+                    stlFiles.push({
                         name: item.path,
-                        url: item.download_url
+                        url: item.download_url,
+                        path: path
+                    });
+                } else if (lowerName.endsWith('.scad')) {
+                    scadFiles.push({
+                        name: item.path,
+                        url: item.download_url,
+                        path: path
                     });
                 }
             } else if (item.type === 'dir') {
                 const subFiles = await fetchAllFiles(owner, repo, item.path);
                 allFiles = allFiles.concat(subFiles);
             }
+        }
+        
+        if (scadFiles.length > 1) {
+            console.log(`Multiple SCAD files found in folder ${path}. Using the first matching SCAD file for each STL.`);
+        }
+
+        for (const stlFile of stlFiles) {
+            const matchingScad = scadFiles.find(scad => scad.path === stlFile.path);
+            if (matchingScad) {
+                stlFile.scadContent = await fetchFileContent(matchingScad.url, token);
+            } 
+
+            allFiles.push(stlFile);
         }
         
         localStorage.setItem(cacheKey, JSON.stringify(allFiles));
@@ -253,6 +360,13 @@ async function fetchAllFiles(owner, repo, path = '') {
             throw error;
         }
     }
+}
+
+async function fetchFileContent(url, token) {
+    const response = await fetch(url, {
+        headers: token ? { 'Authorization': `token ${token}` } : {}
+    });
+    return await response.text();
 }
 
 function promptForPAT() {
@@ -301,24 +415,6 @@ function initScene(container) {
     world.defaultContactMaterial.friction = 0.5;
     world.defaultContactMaterial.restitution = 0.3;
 
-    // Create floor
-    const planeShape = new CANNON.Plane();
-    const planeBody = new CANNON.Body({ mass: 0 });
-    planeBody.addShape(planeShape);
-    planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-    world.addBody(planeBody);
-
-    // Reduce ground friction
-    const groundMaterial = new CANNON.Material('ground');
-    planeBody.material = groundMaterial;
-
-    const objectMaterial = new CANNON.Material('object');
-    const groundObjectContact = new CANNON.ContactMaterial(groundMaterial, objectMaterial, {
-        friction: 0.2, // Reduced friction (default is 0.3)
-        restitution: 0.3 // Slight increase in bounciness
-    });
-    world.addContactMaterial(groundObjectContact);
-
     // Define a common material for floor and walls
     const transparentMaterial = new THREE.MeshBasicMaterial({
         color: 0x4a5568, // A soft blue-gray color
@@ -334,6 +430,12 @@ function initScene(container) {
     planeMesh.position.y = 0;
     scene.add(planeMesh);
     worldObjects.push(planeMesh);
+
+    const planeShape = new CANNON.Plane();
+    const planeBody = new CANNON.Body({ mass: 0 });
+    planeBody.addShape(planeShape);
+    planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+    world.addBody(planeBody);
 
     // Create borders (walls)
     const borderHeight = 2 * areaSize;
@@ -764,7 +866,7 @@ function animateCamera(targetPosition, targetLookAt, duration, callback) {
         blogPostOverlay.style.right = '0';
         blogPostOverlay.style.transition = `top ${duration}ms ease-in-out`; // Transition for vertical slide
     } else {
-        blogPostOverlay.style.width = '30%'; // Adjust as needed
+        blogPostOverlay.style.width = blogPostOverlayStyleWidth;
         blogPostOverlay.style.height = '100%';
         blogPostOverlay.style.top = '0';
         blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`;
@@ -777,7 +879,7 @@ function animateCamera(targetPosition, targetLookAt, duration, callback) {
     if (isNarrowScreen) {
         targetWidth = window.innerWidth;
     } else {
-        targetWidth = isBlogVisible ? window.innerWidth * 0.7 : window.innerWidth; // 70% width when blog is visible
+        targetWidth = isBlogVisible ? window.innerWidth - parseFloat(blogPostOverlayStyleWidth) : window.innerWidth;
     }
 
     const targetHeight = isNarrowScreen && isBlogVisible ? window.innerHeight * 0.5 : window.innerHeight;
@@ -904,7 +1006,8 @@ function loadSTLModel(file, index, count = 1, i = 0) {
                 });
 
                 const mesh = new THREE.Mesh(geometry, material);
-                mesh.userData.fileName = `${file.name} (${i+1})`;
+                mesh.userData.fileName = file.name;
+                mesh.userData.scadContent = file.scadContent
                 mesh.visible = !isZoomedIn;
 
                 const geometryProcessStart = performance.now();
