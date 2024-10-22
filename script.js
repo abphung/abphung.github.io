@@ -90,26 +90,14 @@ let blogPostOverlayStyleHeight = isNarrowScreen ? `${window.innerHeight * 0.5}px
 function createBlogPostOverlay(duration) {
     blogPostOverlay = document.createElement('div');
     blogPostOverlay.style.position = 'fixed';
-    blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 1)';
     blogPostOverlay.style.color = 'white';
     blogPostOverlay.style.boxSizing = 'border-box';
     blogPostOverlay.style.overflow = 'hidden';
     blogPostOverlay.style.zIndex = '1000';
-    
-    // Position based on screen size
-    if (isNarrowScreen) {
-        blogPostOverlay.style.bottom = '0';
-        blogPostOverlay.style.left = '0';
-        blogPostOverlay.style.width = '100%';
-        blogPostOverlay.style.height = blogPostOverlayStyleHeight;
-        blogPostOverlay.style.transition = `height ${duration}ms ease-in-out`;
-    } else {
-        blogPostOverlay.style.top = '0';
-        blogPostOverlay.style.right = '0';
-        blogPostOverlay.style.height = '100%';
-        blogPostOverlay.style.width = blogPostOverlayStyleWidth;
-        blogPostOverlay.style.transition = `width ${duration}ms ease-in-out`;
-    }
+
+    console.log(`${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`);
+    blogPostOverlay.style.transition = `${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`;
 
     // Create content container
     const contentContainer = document.createElement('div');
@@ -227,7 +215,7 @@ function createBlogPostOverlay(duration) {
 }
 
 function toggleBlogPost(duration) {
-    blogPostOverlay.style.transition = `${isNarrowScreen ? 'top' : 'right'} ${duration}ms ease-in-out`;
+    blogPostOverlay.style.transition = `${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`;
 
     if (isBlogPostVisible) {
         hideBlogPost();
@@ -782,7 +770,7 @@ function zoomIn(model) {
     zoomedModel = model;
     hoverTooltip.style.display = 'none';
 
-    showBlogPost(model);
+    showBlogPost(model, 2000);
     const physicsBody = zoomedModel.userData.physicsBody;
     physicsBody.velocity.set(0, 0, 0);
     physicsBody.angularVelocity.set(0, 0, 0);
@@ -901,7 +889,7 @@ function animateCamera(targetPosition, targetLookAt, duration, callback) {
         blogPostOverlay.style.width = '100%';
         blogPostOverlay.style.height = blogPostOverlayStyleHeight;
         blogPostOverlay.style.right = '0';
-        blogPostOverlay.style.transition = `top ${duration}ms ease-in-out`;
+        blogPostOverlay.style.transition = `bottom ${duration}ms ease-in-out`;
     } else {
         blogPostOverlay.style.width = blogPostOverlayStyleWidth;
         blogPostOverlay.style.height = '100%';
