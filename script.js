@@ -1179,7 +1179,7 @@ async function initGallery() {
 
         hoverTooltip = document.getElementById('hoverTooltip');
 
-        createDebugOverlay();
+        //createDebugOverlay();
 
         initScene(container);
 
