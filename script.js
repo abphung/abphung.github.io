@@ -96,33 +96,18 @@ function createBlogPostOverlay(duration) {
     blogPostOverlay.style.overflow = 'hidden';
     blogPostOverlay.style.zIndex = '1000';
 
-    const sliverSize = 30;
-    const maxOffset = isNarrowScreen ? 
-        parseInt(blogPostOverlayStyleHeight, 10) - sliverSize : 
-        parseInt(blogPostOverlayStyleWidth, 10) - sliverSize;
-    
+    console.log(`${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`);
     blogPostOverlay.style.transition = `${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`;
-
-    // Create header container for toggle button
-    const headerContainer = document.createElement('div');
-    headerContainer.style.position = 'sticky';
-    headerContainer.style.top = '0';
-    headerContainer.style.left = '0';
-    headerContainer.style.width = '100%';
-    headerContainer.style.padding = '10px';
-    headerContainer.style.backgroundColor = 'rgba(0, 0, 0, 1)';
-    headerContainer.style.zIndex = '2';
-    blogPostOverlay.appendChild(headerContainer);
 
     // Create content container
     const contentContainer = document.createElement('div');
-    contentContainer.style.height = 'calc(100% - 40px)'; // Adjust for header height
+    contentContainer.style.height = '100%';
     contentContainer.style.width = '100%';
     contentContainer.style.overflowY = 'auto';
     contentContainer.style.padding = '20px';
     blogPostOverlay.appendChild(contentContainer);
 
-    // Create resize handle
+    // Create resize handle with orientation based on screen size
     const resizeHandle = document.createElement('div');
     resizeHandle.style.position = 'absolute';
     if (isNarrowScreen) {
@@ -141,65 +126,17 @@ function createBlogPostOverlay(duration) {
     resizeHandle.style.zIndex = '1';
     blogPostOverlay.appendChild(resizeHandle);
 
-    // Create toggle button inside header
+    // Create toggle button
     toggleButton = document.createElement('button');
-    toggleButton.style.padding = '8px 12px';
-    toggleButton.style.border = 'none';
-    toggleButton.style.borderRadius = '4px';
-    toggleButton.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-    toggleButton.style.color = 'white';
-    toggleButton.style.cursor = 'pointer';
-    toggleButton.style.transition = 'background-color 0.2s';
-    toggleButton.style.marginLeft = '10px';
-    
-    // Add hover effect
-    toggleButton.addEventListener('mouseenter', () => {
-        toggleButton.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-    });
-    toggleButton.addEventListener('mouseleave', () => {
-        toggleButton.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-    });
-
-    headerContainer.appendChild(toggleButton);
-
-    let isOpen = true;
-    
-    function updateToggleButton() {
-        if (isNarrowScreen) {
-            toggleButton.textContent = isOpen ? '▼▼' : '▲▲';
-        } else {
-            toggleButton.textContent = isOpen ? '►►' : '◄◄';
-        }
-    }
-    
-    function toggleBlogPost(duration) {
-        isOpen = !isOpen;
-        updateToggleButton();
-        
-        if (isNarrowScreen) {
-            blogPostOverlay.style.bottom = isOpen ? '0' : `-${maxOffset}px`;
-        } else {
-            blogPostOverlay.style.right = isOpen ? '0' : `-${maxOffset}px`;
-        }
-    }
-
-    updateToggleButton();
+    toggleButton.textContent = 'Toggle Blog Post';
+    toggleButton.style.position = 'fixed';
+    toggleButton.style.top = '20px';
+    toggleButton.style.right = '20px';
+    toggleButton.style.zIndex = '1001';
     toggleButton.addEventListener('click', () => toggleBlogPost(duration));
     
     document.body.appendChild(blogPostOverlay);
-
-    // Initial positioning
-    if (isNarrowScreen) {
-        blogPostOverlay.style.left = '0';
-        blogPostOverlay.style.right = '0';
-        blogPostOverlay.style.bottom = '0';
-        blogPostOverlay.style.height = blogPostOverlayStyleHeight;
-    } else {
-        blogPostOverlay.style.top = '0';
-        blogPostOverlay.style.right = '0';
-        blogPostOverlay.style.bottom = '0';
-        blogPostOverlay.style.width = blogPostOverlayStyleWidth;
-    }
+    document.body.appendChild(toggleButton);
 
     let isResizing = false;
     let startY, startX, startHeight, startWidth;
@@ -260,15 +197,17 @@ function createBlogPostOverlay(duration) {
         animateCamera(startPosition, startLookAt, 2000, () => {});
     }
 
+    // Function to update content
     blogPostOverlay.updateContent = function(html) {
         contentContainer.innerHTML = html;
     };
 
+    // Add window resize listener to update layout
     window.addEventListener('resize', () => {
-        const newIsNarrowScreen = window.innerWidth < 1200;
+        const newIsNarrowScreen = window.innerWidth < 768;
         if (newIsNarrowScreen !== isNarrowScreen) {
             isNarrowScreen = newIsNarrowScreen;
-            location.reload();
+            location.reload(); // Refresh to apply new layout
         }
     });
 
