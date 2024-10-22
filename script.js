@@ -83,7 +83,7 @@ let lastCameraQuaternion = new THREE.Quaternion();
 let isBlogPostVisible = false;
 
 let blogPostOverlay, toggleButton, isNarrowScreen;
-let blogPostOverlayStyleWidth = '30%'
+let blogPostOverlayStyleWidth = `${window.innerWidth * .3}px`
 
 function createBlogPostOverlay(duration) {
     blogPostOverlay = document.createElement('div');
@@ -114,28 +114,8 @@ function createBlogPostOverlay(duration) {
     resizeHandle.style.width = '20px';
     resizeHandle.style.height = '100%';
     resizeHandle.style.cursor = 'ew-resize';
-    resizeHandle.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
-    resizeHandle.style.transition = 'background-color 0.3s ease';
     resizeHandle.style.zIndex = '1'; // Ensure it's above the content
     blogPostOverlay.appendChild(resizeHandle);
-
-    const handleLine = document.createElement('div');
-    handleLine.style.position = 'absolute';
-    handleLine.style.top = '0';
-    handleLine.style.left = '50%';
-    handleLine.style.width = '4px';
-    handleLine.style.height = '100%';
-    handleLine.style.backgroundColor = 'white';
-    handleLine.style.transform = 'translateX(-50%)';
-    resizeHandle.appendChild(handleLine);
-
-    resizeHandle.addEventListener('mouseover', () => {
-        resizeHandle.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
-    });
-
-    resizeHandle.addEventListener('mouseout', () => {
-        resizeHandle.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
-    });
 
     toggleButton = document.createElement('button');
     toggleButton.textContent = 'Toggle Blog Post';
@@ -151,16 +131,40 @@ function createBlogPostOverlay(duration) {
     let isResizing = false;
     let startX, startWidth;
 
+    function disableSelection() {
+        document.body.style.userSelect = 'none';
+        document.body.style.webkitUserSelect = 'none';
+        document.body.style.mozUserSelect = 'none';
+        document.body.style.msUserSelect = 'none';
+    }
+
+    // Function to enable text selection
+    function enableSelection() {
+        document.body.style.userSelect = '';
+        document.body.style.webkitUserSelect = '';
+        document.body.style.mozUserSelect = '';
+        document.body.style.msUserSelect = '';
+    }
+
     resizeHandle.addEventListener('mousedown', (e) => {
         isResizing = true;
         startX = e.clientX;
         startWidth = parseInt(window.getComputedStyle(blogPostOverlay).width, 10);
+        
+        // Prevent default behavior to avoid text selection
+        e.preventDefault();
+        
+        // Disable text selection when starting resize
+        disableSelection();
+        
         document.addEventListener('mousemove', resize);
         document.addEventListener('mouseup', stopResize);
     });
 
     function resize(e) {
         if (isResizing) {
+            e.preventDefault();
+
             const width = startWidth - (e.clientX - startX);
             blogPostOverlayStyleWidth = `${Math.max(200, Math.min(width, window.innerWidth - 100))}px`
             blogPostOverlay.style.width = blogPostOverlayStyleWidth;
@@ -169,6 +173,9 @@ function createBlogPostOverlay(duration) {
 
     function stopResize() {
         isResizing = false;
+
+        enableSelection();
+        
         document.removeEventListener('mousemove', resize);
         document.removeEventListener('mouseup', stopResize);
         const startPosition = camera.position.clone();
@@ -876,6 +883,7 @@ function animateCamera(targetPosition, targetLookAt, duration, callback) {
     const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
     let targetWidth;
     
+    console.log(window.innerWidth - parseFloat(blogPostOverlayStyleWidth), window.innerWidth, parseFloat(blogPostOverlayStyleWidth))
     if (isNarrowScreen) {
         targetWidth = window.innerWidth;
     } else {
@@ -1103,7 +1111,7 @@ function animate() {
 
     for (let i = 0; i < loadedModels.length; i++) {
         const mesh = loadedModels[i];
-        if (mesh && mesh.userData && !isZoomedIn) {
+        if (mesh && mesh.userData && mesh != zoomedModel) {
             const physicsBody = mesh.userData.physicsBody;
             mesh.position.copy(physicsBody.position);
             mesh.quaternion.copy(physicsBody.quaternion);
