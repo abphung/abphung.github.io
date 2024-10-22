@@ -82,24 +82,36 @@ let lastCameraQuaternion = new THREE.Quaternion();
 
 let isBlogPostVisible = false;
 
-let blogPostOverlay, toggleButton, isNarrowScreen;
-let blogPostOverlayStyleWidth = `${window.innerWidth * .3}px`
+let blogPostOverlay, toggleButton;
+let isNarrowScreen = window.innerWidth < 1200//768;
+let blogPostOverlayStyleWidth = isNarrowScreen ? `${window.innerWidth}px` : `${window.innerWidth * 0.3}px`;
+let blogPostOverlayStyleHeight = isNarrowScreen ? `${window.innerHeight * 0.5}px` : `${window.innerHeight}px`;
 
 function createBlogPostOverlay(duration) {
     blogPostOverlay = document.createElement('div');
     blogPostOverlay.style.position = 'fixed';
-    blogPostOverlay.style.top = '0';
-    blogPostOverlay.style.right = '0';
-    blogPostOverlay.style.height = '100%';
-    blogPostOverlay.style.width = blogPostOverlayStyleWidth;
     blogPostOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
     blogPostOverlay.style.color = 'white';
     blogPostOverlay.style.boxSizing = 'border-box';
-    blogPostOverlay.style.overflow = 'hidden'; // Changed from 'auto' to 'hidden'
+    blogPostOverlay.style.overflow = 'hidden';
     blogPostOverlay.style.zIndex = '1000';
-    blogPostOverlay.style.transition = `width ${duration}ms ease-in-out`;
+    
+    // Position based on screen size
+    if (isNarrowScreen) {
+        blogPostOverlay.style.bottom = '0';
+        blogPostOverlay.style.left = '0';
+        blogPostOverlay.style.width = '100%';
+        blogPostOverlay.style.height = blogPostOverlayStyleHeight;
+        blogPostOverlay.style.transition = `height ${duration}ms ease-in-out`;
+    } else {
+        blogPostOverlay.style.top = '0';
+        blogPostOverlay.style.right = '0';
+        blogPostOverlay.style.height = '100%';
+        blogPostOverlay.style.width = blogPostOverlayStyleWidth;
+        blogPostOverlay.style.transition = `width ${duration}ms ease-in-out`;
+    }
 
-    // Create a content container
+    // Create content container
     const contentContainer = document.createElement('div');
     contentContainer.style.height = '100%';
     contentContainer.style.width = '100%';
@@ -107,29 +119,39 @@ function createBlogPostOverlay(duration) {
     contentContainer.style.padding = '20px';
     blogPostOverlay.appendChild(contentContainer);
 
+    // Create resize handle with orientation based on screen size
     const resizeHandle = document.createElement('div');
     resizeHandle.style.position = 'absolute';
-    resizeHandle.style.top = '0';
-    resizeHandle.style.left = '0';
-    resizeHandle.style.width = '20px';
-    resizeHandle.style.height = '100%';
-    resizeHandle.style.cursor = 'ew-resize';
-    resizeHandle.style.zIndex = '1'; // Ensure it's above the content
+    if (isNarrowScreen) {
+        resizeHandle.style.top = '0';
+        resizeHandle.style.left = '0';
+        resizeHandle.style.width = '100%';
+        resizeHandle.style.height = '20px';
+        resizeHandle.style.cursor = 'ns-resize';
+    } else {
+        resizeHandle.style.top = '0';
+        resizeHandle.style.left = '0';
+        resizeHandle.style.width = '20px';
+        resizeHandle.style.height = '100%';
+        resizeHandle.style.cursor = 'ew-resize';
+    }
+    resizeHandle.style.zIndex = '1';
     blogPostOverlay.appendChild(resizeHandle);
 
+    // Create toggle button
     toggleButton = document.createElement('button');
     toggleButton.textContent = 'Toggle Blog Post';
     toggleButton.style.position = 'fixed';
     toggleButton.style.top = '20px';
     toggleButton.style.right = '20px';
     toggleButton.style.zIndex = '1001';
-    toggleButton.addEventListener('click', () => toggleBlogPost(1000));
-
+    toggleButton.addEventListener('click', () => toggleBlogPost(duration));
+    
     document.body.appendChild(blogPostOverlay);
     document.body.appendChild(toggleButton);
 
     let isResizing = false;
-    let startX, startWidth;
+    let startY, startX, startHeight, startWidth;
 
     function disableSelection() {
         document.body.style.userSelect = 'none';
@@ -138,7 +160,6 @@ function createBlogPostOverlay(duration) {
         document.body.style.msUserSelect = 'none';
     }
 
-    // Function to enable text selection
     function enableSelection() {
         document.body.style.userSelect = '';
         document.body.style.webkitUserSelect = '';
@@ -148,13 +169,15 @@ function createBlogPostOverlay(duration) {
 
     resizeHandle.addEventListener('mousedown', (e) => {
         isResizing = true;
-        startX = e.clientX;
-        startWidth = parseInt(window.getComputedStyle(blogPostOverlay).width, 10);
+        if (isNarrowScreen) {
+            startY = e.clientY;
+            startHeight = parseInt(window.getComputedStyle(blogPostOverlay).height, 10);
+        } else {
+            startX = e.clientX;
+            startWidth = parseInt(window.getComputedStyle(blogPostOverlay).width, 10);
+        }
         
-        // Prevent default behavior to avoid text selection
         e.preventDefault();
-        
-        // Disable text selection when starting resize
         disableSelection();
         
         document.addEventListener('mousemove', resize);
@@ -162,20 +185,23 @@ function createBlogPostOverlay(duration) {
     });
 
     function resize(e) {
-        if (isResizing) {
-            e.preventDefault();
+        if (!isResizing) return;
+        e.preventDefault();
 
+        if (isNarrowScreen) {
+            const height = startHeight - (e.clientY - startY);
+            blogPostOverlayStyleHeight = `${Math.max(200, Math.min(height, window.innerHeight - 100))}px`;
+            blogPostOverlay.style.height = blogPostOverlayStyleHeight;
+        } else {
             const width = startWidth - (e.clientX - startX);
-            blogPostOverlayStyleWidth = `${Math.max(200, Math.min(width, window.innerWidth - 100))}px`
+            blogPostOverlayStyleWidth = `${Math.max(200, Math.min(width, window.innerWidth - 100))}px`;
             blogPostOverlay.style.width = blogPostOverlayStyleWidth;
         }
     }
 
     function stopResize() {
         isResizing = false;
-
         enableSelection();
-        
         document.removeEventListener('mousemove', resize);
         document.removeEventListener('mouseup', stopResize);
         const startPosition = camera.position.clone();
@@ -188,15 +214,22 @@ function createBlogPostOverlay(duration) {
         contentContainer.innerHTML = html;
     };
 
+    // Add window resize listener to update layout
+    window.addEventListener('resize', () => {
+        const newIsNarrowScreen = window.innerWidth < 768;
+        if (newIsNarrowScreen !== isNarrowScreen) {
+            isNarrowScreen = newIsNarrowScreen;
+            location.reload(); // Refresh to apply new layout
+        }
+    });
+
     return blogPostOverlay;
 }
 
 function toggleBlogPost(duration) {
-    const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
-    
     blogPostOverlay.style.transition = `${isNarrowScreen ? 'top' : 'right'} ${duration}ms ease-in-out`;
 
-    if (isBlogVisible) {
+    if (isBlogPostVisible) {
         hideBlogPost();
     } else {
         showBlogPost(zoomedModel, duration);
@@ -214,9 +247,9 @@ function showBlogPost(model, duration) {
     blogPostOverlay.updateContent(blogPostContent);
 
     if (isNarrowScreen) {
-        blogPostOverlay.style.top = '50%';
+        blogPostOverlay.style.bottom = '0';
     } else {
-        blogPostOverlay.style.right = '0'; // Changed to right
+        blogPostOverlay.style.right = '0';
     }
 
     setTimeout(() => {
@@ -228,7 +261,7 @@ function showBlogPost(model, duration) {
 
 function hideBlogPost() {
     if (isNarrowScreen) {
-        blogPostOverlay.style.top = '100%';
+        blogPostOverlay.style.bottom = `-${blogPostOverlayStyleHeight}`;
     } else {
         blogPostOverlay.style.right = `-${blogPostOverlayStyleWidth}`;
     }
@@ -864,14 +897,11 @@ function fadeObjects(objects, startOpacity, endOpacity) {
 }
 
 function animateCamera(targetPosition, targetLookAt, duration, callback) {
-    // Adjust layout
-    isNarrowScreen = window.innerWidth < 768; // Adjust this breakpoint as needed
     if (isNarrowScreen) {
         blogPostOverlay.style.width = '100%';
-        blogPostOverlay.style.height = '50%';
-        blogPostOverlay.style.top = '100%'; // Start off-screen for narrow screens
+        blogPostOverlay.style.height = blogPostOverlayStyleHeight;
         blogPostOverlay.style.right = '0';
-        blogPostOverlay.style.transition = `top ${duration}ms ease-in-out`; // Transition for vertical slide
+        blogPostOverlay.style.transition = `top ${duration}ms ease-in-out`;
     } else {
         blogPostOverlay.style.width = blogPostOverlayStyleWidth;
         blogPostOverlay.style.height = '100%';
@@ -879,18 +909,16 @@ function animateCamera(targetPosition, targetLookAt, duration, callback) {
         blogPostOverlay.style.transition = `right ${duration}ms ease-in-out`;
     }
 
-    // Determine target renderer size
-    const isBlogVisible = blogPostOverlay.style.right === '0px' || (isNarrowScreen && blogPostOverlay.style.top === '50%');
-    let targetWidth;
-    
-    console.log(window.innerWidth - parseFloat(blogPostOverlayStyleWidth), window.innerWidth, parseFloat(blogPostOverlayStyleWidth))
+    let targetWidth, targetHeight;
+
+    console.log(isBlogPostVisible)
     if (isNarrowScreen) {
         targetWidth = window.innerWidth;
+        targetHeight = isBlogPostVisible ? window.innerHeight - parseFloat(blogPostOverlayStyleHeight) : window.innerHeight;
     } else {
-        targetWidth = isBlogVisible ? window.innerWidth - parseFloat(blogPostOverlayStyleWidth) : window.innerWidth;
+        targetWidth = isBlogPostVisible ? window.innerWidth - parseFloat(blogPostOverlayStyleWidth) : window.innerWidth;
+        targetHeight = window.innerHeight;
     }
-
-    const targetHeight = isNarrowScreen && isBlogVisible ? window.innerHeight * 0.5 : window.innerHeight;
 
     console.log(targetWidth, targetHeight)
 
