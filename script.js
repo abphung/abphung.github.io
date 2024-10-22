@@ -85,7 +85,7 @@ let isBlogPostVisible = false;
 let blogPostOverlay, toggleButton;
 let isNarrowScreen = window.innerWidth < 1200//768;
 let blogPostOverlayStyleWidth = isNarrowScreen ? `${window.innerWidth}px` : `${window.innerWidth * 0.3}px`;
-let blogPostOverlayStyleHeight = isNarrowScreen ? `${window.innerHeight * 0.5}px` : `${window.innerHeight}px`;
+let blogPostOverlayStyleHeight = isNarrowScreen ? `${window.innerHeight * 0.75}px` : `${window.innerHeight}px`;
 
 function createBlogPostOverlay(duration) {
     blogPostOverlay = document.createElement('div');
@@ -95,6 +95,14 @@ function createBlogPostOverlay(duration) {
     blogPostOverlay.style.boxSizing = 'border-box';
     blogPostOverlay.style.overflow = 'hidden';
     blogPostOverlay.style.zIndex = '1000';
+
+    if (isNarrowScreen) {
+        blogPostOverlay.style.borderTopLeftRadius = `${window.innerWidth * 0.03}px`;
+        blogPostOverlay.style.borderTopRightRadius = `${window.innerWidth * 0.03}px`;
+    } else {
+        blogPostOverlay.style.borderTopLeftRadius = `${window.innerHeight * 0.03}px`;
+        blogPostOverlay.style.borderBottomLeftRadius = `${window.innerHeight * 0.03}px`;
+    }
 
     console.log(`${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`);
     blogPostOverlay.style.transition = `${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`;
