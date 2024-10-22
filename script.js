@@ -97,11 +97,11 @@ function createBlogPostOverlay(duration) {
     blogPostOverlay.style.zIndex = '1000';
 
     if (isNarrowScreen) {
-        blogPostOverlay.style.borderTopLeftRadius = `${window.innerWidth * 0.03}px`;
-        blogPostOverlay.style.borderTopRightRadius = `${window.innerWidth * 0.03}px`;
+        blogPostOverlay.style.borderTopLeftRadius = `${window.innerWidth * 0.1}px`;
+        blogPostOverlay.style.borderTopRightRadius = `${window.innerWidth * 0.1}px`;
     } else {
-        blogPostOverlay.style.borderTopLeftRadius = `${window.innerHeight * 0.03}px`;
-        blogPostOverlay.style.borderBottomLeftRadius = `${window.innerHeight * 0.03}px`;
+        blogPostOverlay.style.borderTopLeftRadius = `${window.innerHeight * 0.05}px`;
+        blogPostOverlay.style.borderBottomLeftRadius = `${window.innerHeight * 0.05}px`;
     }
 
     console.log(`${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`);
