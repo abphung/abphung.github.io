@@ -38,8 +38,20 @@
         const statsDisplay = document.getElementById('stats');
 
         function playNumber(number) {
-            const audio = new Audio(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${number}&tl=vi`);
-            audio.play();
+            fetch(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${number}&tl=vi`)
+                .then(response => response.arrayBuffer())
+                .then(data => {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    audioContext.decodeAudioData(data, buffer => {
+                        const source = audioContext.createBufferSource();
+                        source.buffer = buffer;
+                        source.connect(audioContext.destination);
+                        source.start();
+                    });
+                })
+                .catch(error => {
+                    console.error("Error loading audio:", error);
+                });
         }
 
         function saveAttempt(timeTaken, number) {
