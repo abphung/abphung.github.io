@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Climb CSV → Stacked Horizontal Bar Animation (GIF)</title>
+  <title>Climb CSV → Stacked Horizontal Bar Animation</title>
   <style>
     :root{--bg:#f7fafc;--card:#fff;--muted:#666}
     html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg)}
@@ -14,7 +14,7 @@
     input[type=file]{display:inline-block}
     label.small{font-size:13px;color:var(--muted)}
     #chartWrap{width:100%;height:640px;display:flex;align-items:center;justify-content:center;padding:12px}
-    canvas{max-width:100%;max-height:100%}
+    canvas{width:100%;height:100%;max-width:100%;max-height:100%}
     button{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer}
     button:disabled{opacity:.5;cursor:not-allowed}
     a.downloadLink{font-weight:600;color:#0b5ff0}
@@ -26,19 +26,19 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Climb CSV → Stacked Horizontal Bar Animation (WebM Video)</h1>
+    <h1>Climb CSV → Stacked Horizontal Bar Animation</h1>
 
-    <div class="controls card">
+    <div id="fileControls" class="controls card">
       <input id="csvFile" type="file" accept=".csv" />
-      <button id="playPauseBtn" disabled>Play</button>
-      <label class="small">Frame: <input id="frameSlider" type="range" min="0" max="0" value="0" style="width:200px" disabled/> <span id="frameDisplay">0/0</span></label>
-      <label class="small" style="margin-left:15px">Average: <span id="avgDisplay">--</span></label>
-      <button id="saveVideoBtn" disabled>Save WebM Video</button>
-      <label class="small" style="margin-left:8px">Order: CSV (chronological)</label>
     </div>
 
-    <div id="chartWrap" class="card">
-      <canvas id="barChart" width="1000" height="640"></canvas>
+    <div id="chartWrap" class="card" style="display:none;margin-bottom:20px;">
+      <canvas id="barChart"></canvas>
+    </div>
+
+    <div id="playbackControls" class="controls card" style="display:none;">
+      <button id="playPauseBtn">Play</button>
+      <label class="small">Frame: <input id="frameSlider" type="range" min="0" max="0" value="0" style="width:200px"/> <span id="frameDisplay">0/0</span></label>
     </div>
 
     <div id="status" class="card" style="margin-top:12px;padding:10px;">
@@ -58,11 +58,12 @@
   const statusText = $('#statusText');
   const csvFileInput = $('#csvFile');
   const playPauseBtn = $('#playPauseBtn');
-  const saveVideoBtn = $('#saveVideoBtn');
   const frameSlider = $('#frameSlider');
   const frameDisplay = $('#frameDisplay');
-  const avgDisplay = $('#avgDisplay');
   const canvas = document.getElementById('barChart');
+  const chartWrap = $('#chartWrap');
+  const playbackControls = $('#playbackControls');
+  const fileControls = $('#fileControls');
 
   // Internal state
   let rawRows = [];
@@ -73,7 +74,7 @@
   let playTimer = null;
   let currentFrame = 0;
   let isPlaying = false;
-  let hasCompletedOneCycle = false;
+
 
   // --- Color mapping (common hold colors) ---
   const colorMap = {
@@ -126,13 +127,15 @@
         try {
           prepareFramesFromCSV(rawRows);
           statusText.textContent = `Loaded ${rawRows.length} rows → ${frames.length} animation frames. Ready.`;
-          playPauseBtn.disabled = false;
-          saveVideoBtn.disabled = false;
-          frameSlider.disabled = false;
+          
+          // Hide file input and show the chart and playback controls
+          fileControls.style.display = 'none';
+          chartWrap.style.display = 'block';
+          playbackControls.style.display = 'flex';
+          
           frameSlider.max = frames.length - 1;
           frameDisplay.textContent = `1/${frames.length}`;
           currentFrame = 0;
-          hasCompletedOneCycle = false;
           showFrame(0); // Show first frame
           
           // Auto-start animation
@@ -141,8 +144,6 @@
           }, 500);
         } catch(e){
           statusText.textContent = 'Error processing CSV: ' + e.message;
-          playPauseBtn.disabled = true;
-          saveVideoBtn.disabled = true;
         }
       },
       error: (err) => {
@@ -249,6 +250,9 @@
     if(chart) chart.destroy();
     const ctx = canvas.getContext('2d');
 
+    // Calculate the maximum total count for any grade across all frames
+    const maxCount = calculateMaxCount();
+
     // dataset objects (colors) with consistent color assignment
     const datasets = colors.map(c => ({
       label: c,
@@ -277,12 +281,35 @@
           }
         },
         scales: {
-          x: { stacked: true, beginAtZero: true, title: { display: true, text: 'Count' } },
+          x: { 
+            stacked: true, 
+            beginAtZero: true, 
+            max: maxCount,
+            title: { display: true, text: 'Count' } 
+          },
           y: { stacked: true, title: { display: true, text: 'Grade' } }
         },
         animation: { duration: 300, easing: 'linear' }
       }
     });
+  }
+
+  function calculateMaxCount() {
+    if (!frames.length) return 100;
+    
+    let maxCount = 0;
+    
+    // Check each frame to find the maximum total count for any grade
+    frames.forEach(frame => {
+      grades.forEach((grade, gradeIdx) => {
+        // Sum all colors for this grade in this frame
+        const gradeTotal = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
+        maxCount = Math.max(maxCount, gradeTotal);
+      });
+    });
+    
+    // Add a small buffer (10%) to the max count for better visual spacing
+    return Math.ceil(maxCount * 1.1);
   }
 
   function showFrame(i){
@@ -307,42 +334,13 @@
     // ensure labels (grades) in chart match if new grade was added
     chart.data.labels = grades.slice();
     
-    // Calculate and display average
-    updateAverageDisplay(i);
-    
     // Calculate and update average grade line
     updateAverageGradeLine(i);
     
+    // Calculate and update median grade line  
+    updateMedianGradeLine(i);
+    
     chart.update();
-  }
-
-  function updateAverageDisplay(frameIndex) {
-    if (!frames.length) {
-      avgDisplay.textContent = '--';
-      return;
-    }
-    
-    const frame = frames[frameIndex];
-    let totalClimbs = 0;
-    let gradeSum = 0;
-    
-    grades.forEach((grade, gradeIdx) => {
-      const climbs = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
-      if (climbs > 0) {
-        totalClimbs += climbs;
-        const gradeNum = gradeToNumber(grade);
-        if (gradeNum !== Number.MAX_SAFE_INTEGER) {
-          gradeSum += gradeNum * climbs;
-        }
-      }
-    });
-    
-    if (totalClimbs === 0) {
-      avgDisplay.textContent = '--';
-    } else {
-      const averageGradeValue = gradeSum / totalClimbs;
-      avgDisplay.textContent = `V${averageGradeValue.toFixed(1)}`;
-    }
   }
 
   function updateAverageGradeLine(frameIndex) {
@@ -364,28 +362,44 @@
     });
     
     const averageGrade = totalClimbs > 0 ? weightedSum / totalClimbs : 0;
+    const averageDisplay = totalClimbs > 0 ? `Avg: V${averageGrade.toFixed(1)}` : 'Avg: --';
     
-    // Update chart annotation
-    if (!chart.options.plugins.annotation) {
-      chart.options.plugins.annotation = { annotations: {} };
-    }
+    // Find the closest grade index for positioning
+    let closestIndex = 0;
+    let closestDiff = Math.abs(gradeToNumber(grades[0]) - averageGrade);
     
+    grades.forEach((grade, idx) => {
+      const gradeNum = gradeToNumber(grade);
+      if (gradeNum !== Number.MAX_SAFE_INTEGER) {
+        const diff = Math.abs(gradeNum - averageGrade);
+        if (diff < closestDiff) {
+          closestDiff = diff;
+          closestIndex = idx;
+        }
+      }
+    });
+    
+    // Update chart annotation - try simpler approach
     chart.options.plugins.annotation.annotations = {
       averageLine: {
         type: 'line',
-        yMin: averageGrade - 1,
-        yMax: averageGrade - 1,
+        yMin: closestIndex,
+        yMax: closestIndex,
         borderColor: '#ff4444',
         borderWidth: 3,
         borderDash: [5, 5],
         label: {
-          content: `Avg: ${averageGrade.toFixed(1)}`,
-          enabled: true,
+          display: true,
+          content: averageDisplay,
           position: 'end',
           backgroundColor: '#ff4444',
           color: 'white',
-          font: { size: 12, weight: 'bold' },
-          padding: 4
+          font: {
+            size: 12,
+            weight: 'bold'
+          },
+          padding: 6,
+          borderRadius: 4
         }
       }
     };
@@ -410,19 +424,15 @@
         showFrame(currentFrame);
         frameSlider.value = currentFrame;
         frameDisplay.textContent = `${currentFrame + 1}/${frames.length}`;
-        currentFrame = (currentFrame + 1) % frames.length;
+        currentFrame++;
         
-        // Pause once all frames are rendered (when we loop back to frame 0 after completing one cycle)
-        if (currentFrame === 0 && hasCompletedOneCycle) {
+        // Pause when we reach the end
+        if (currentFrame >= frames.length) {
+          currentFrame = frames.length - 1; // Stay on last frame
           clearInterval(playTimer);
           playTimer = null;
           isPlaying = false;
           playPauseBtn.textContent = 'Play';
-        }
-        
-        // Mark that we've completed one cycle when we reach the last frame
-        if (currentFrame === 0) {
-          hasCompletedOneCycle = true;
         }
       }, speed);
     }
@@ -441,165 +451,8 @@
       playTimer = null;
       isPlaying = false;
       playPauseBtn.textContent = 'Play';
-      hasCompletedOneCycle = false; // Reset cycle tracking when manually scrubbing
     }
   });
-
-  // --- Export Video using MediaRecorder ---
-  saveVideoBtn.addEventListener('click', async () => {
-    if(!frames.length) return;
-    
-    // Check if MediaRecorder is supported
-    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
-      statusText.innerHTML = 'Video recording not supported in this browser. Try Chrome/Firefox or <button onclick="exportFramesAsZip()">Download Frames as ZIP</button>';
-      return;
-    }
-
-    const delay = 350; // Fixed delay for video recording
-    statusText.innerHTML = '<div class="spinner"></div>Preparing video recording...';
-    saveVideoBtn.disabled = true;
-
-    // Create a hidden canvas for background rendering
-    const hiddenCanvas = document.createElement('canvas');
-    hiddenCanvas.width = canvas.width;
-    hiddenCanvas.height = canvas.height;
-    hiddenCanvas.style.display = 'none';
-    document.body.appendChild(hiddenCanvas);
-
-    // Create hidden chart instance for background rendering
-    const hiddenCtx = hiddenCanvas.getContext('2d');
-    const datasets = colors.map(c => ({
-      label: c,
-      data: Array.from({length:grades.length}, () => 0),
-      backgroundColor: getColorHex(c),
-      borderColor: '#222',
-      borderWidth: 0.6,
-      borderRadius: 6
-    }));
-
-    const hiddenChart = new Chart(hiddenCtx, {
-      type: 'bar',
-      data: {
-        labels: grades,
-        datasets: datasets
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: false,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: false }
-        },
-        scales: {
-          x: { stacked: true, beginAtZero: true, title: { display: true, text: 'Count' } },
-          y: { stacked: true, title: { display: true, text: 'Grade' } }
-        },
-        animation: { duration: 0 } // No animation for background rendering
-      }
-    });
-
-    try {
-      const stream = hiddenCanvas.captureStream(30); // 30 FPS
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 2500000
-      });
-
-      const chunks = [];
-      recorder.ondataavailable = e => chunks.push(e.data);
-      
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'climb-animation.webm';
-        a.textContent = 'Download Video';
-        a.className = 'downloadLink';
-        statusText.innerHTML = '';
-        statusText.appendChild(a);
-        saveVideoBtn.disabled = false;
-        
-        // Cleanup
-        hiddenChart.destroy();
-        document.body.removeChild(hiddenCanvas);
-      };
-
-      statusText.innerHTML = '<div class="spinner"></div>Starting video recording...';
-      recorder.start();
-
-      // Function to update hidden chart frame
-      const updateHiddenFrame = (i) => {
-        const frame = frames[i];
-        frame.datasets.forEach((valsPerGrade, datasetIdx) => {
-          if(hiddenChart.data.datasets[datasetIdx]) {
-            hiddenChart.data.datasets[datasetIdx].data = valsPerGrade.slice();
-          }
-        });
-        hiddenChart.data.labels = grades.slice();
-        hiddenChart.update();
-      };
-
-      // Render all frames in background while showing progress
-      for(let i = 0; i < frames.length; i++) {
-        updateHiddenFrame(i);
-        await new Promise(r => setTimeout(r, delay));
-        const percent = Math.round((i + 1) / frames.length * 100);
-        statusText.innerHTML = `<div class="spinner"></div>Recording frame ${i+1}/${frames.length} (${percent}%)`;
-      }
-
-      // Stop recording after a brief pause
-      await new Promise(r => setTimeout(r, 500));
-      statusText.innerHTML = '<div class="spinner"></div>Finalizing video...';
-      recorder.stop();
-
-    } catch (error) {
-      statusText.innerHTML = `Recording failed: ${error.message}. <button onclick="exportFramesAsZip()">Download Frames as ZIP instead</button>`;
-      saveVideoBtn.disabled = false;
-      
-      // Cleanup on error
-      if (hiddenChart) hiddenChart.destroy();
-      if (hiddenCanvas && hiddenCanvas.parentNode) {
-        document.body.removeChild(hiddenCanvas);
-      }
-    }
-  });
-
-  // Alternative: Export individual frames as PNG files in a ZIP
-  window.exportFramesAsZip = async () => {
-    if(!frames.length) return;
-    
-    statusText.textContent = 'Preparing frame images...';
-    const oldAnimation = chart.options.animation ? chart.options.animation.duration : 300;
-    chart.options.animation = { duration: 0 };
-
-    const zip = new JSZip(); // We'll need to add this library if we want ZIP support
-    
-    for(let i = 0; i < frames.length; i++) {
-      showFrame(i);
-      await new Promise(r => setTimeout(r, 30));
-      
-      // Convert canvas to blob
-      const dataUrl = canvas.toDataURL('image/png');
-      const base64Data = dataUrl.split(',')[1];
-      zip.file(`frame_${String(i+1).padStart(3, '0')}.png`, base64Data, {base64: true});
-      
-      statusText.textContent = `Exporting frame ${i+1}/${frames.length}`;
-    }
-
-    const content = await zip.generateAsync({type: 'blob'});
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'climb-animation-frames.zip';
-    a.textContent = 'Download Frames ZIP';
-    a.className = 'downloadLink';
-    statusText.textContent = '';
-    statusText.appendChild(a);
-    
-    chart.options.animation = { duration: oldAnimation };
-  };
 
   // Drag & drop support
   window.addEventListener('dragover', e => e.preventDefault());
