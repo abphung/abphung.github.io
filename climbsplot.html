@@ -12,16 +12,21 @@
     .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
     .card{background:var(--card);padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
     input[type=file]{display:inline-block}
-    label.small{font-size:13px;color:var(--muted)}
+    label.small{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex:1;min-width:0}
     #chartWrap{width:100%;height:640px;display:flex;align-items:center;justify-content:center;padding:12px}
     canvas{width:100%;height:100%;max-width:100%;max-height:100%}
     button{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer}
     button:disabled{opacity:.5;cursor:not-allowed}
+    select{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer;font-size:13px}
     a.downloadLink{font-weight:600;color:#0b5ff0}
     #status{margin-top:10px;color:#222;min-height:20px}
     .spinner{display:inline-block;width:16px;height:16px;border:2px solid #f3f3f3;border-top:2px solid #3498db;border-radius:50%;animation:spin 1s linear infinite;margin-right:8px}
     @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
-    @media (max-width:720px){ #chartWrap{height:520px} }
+    #frameSlider{flex:1;min-width:100px}
+    #frameDisplay{white-space:nowrap}
+    @media (max-width:720px){ 
+      #chartWrap{height:520px}
+    }
   </style>
 </head>
 <body>
@@ -38,11 +43,16 @@
 
     <div id="playbackControls" class="controls card" style="display:none;">
       <button id="playPauseBtn">Play</button>
-      <label class="small"><span id="frameDisplay">0/0</span><input id="frameSlider" type="range" min="0" max="0" value="0" style="width:200px"/> </label>
+      <label class="small"><span id="frameDisplay">0/0</span><input id="frameSlider" type="range" min="0" max="0" value="0"/> </label>
+      <select id="aggregationSelect">
+        <option value="average">Average</option>
+        <option value="median">Median</option>
+        <option value="rolling3">3 Month Rolling Avg</option>
+      </select>
     </div>
 
     <div id="status" class="card" style="margin-top:12px;padding:10px;">
-      <div id="statusText">Choose a CSV file with `grade` and `color` columns (CSV header names must be `grade` and `color`). Missing color becomes "Unknown".</div>
+      <div id="statusText">Choose a CSV file with `grade` and `color` columns (CSV header names must be `grade` and `color`). Optional `date` column for rolling averages.</div>
     </div>
   </div>
 
@@ -60,6 +70,7 @@
   const playPauseBtn = $('#playPauseBtn');
   const frameSlider = $('#frameSlider');
   const frameDisplay = $('#frameDisplay');
+  const aggregationSelect = $('#aggregationSelect');
   const canvas = document.getElementById('barChart');
   const chartWrap = $('#chartWrap');
   const playbackControls = $('#playbackControls');
@@ -69,7 +80,7 @@
   let rawRows = [];
   let grades = [];
   let colors = [];
-  let frames = []; // each frame: {datasets: [array per color of values-per-grade], label}
+  let frames = []; // each frame: {datasets: [array per color of values-per-grade], label, date}
   let chart = null;
   let playTimer = null;
   let currentFrame = 0;
@@ -159,20 +170,42 @@
     const headerKeys = Object.keys(rows[0]).map(k => k.toLowerCase());
     const hasGrade = headerKeys.includes('grade');
     const hasColor = headerKeys.includes('color');
+    const hasDate = headerKeys.includes('date');
 
     if(!hasGrade) throw new Error('CSV header must include a "grade" column.');
     // color missing is allowed, we'll map to "Unknown"
+    // date missing will use row index
 
     // normalize rows: ensure fields accessible
-    const normalizedRows = rows.map(r => {
+    const normalizedRows = rows.map((r, idx) => {
       // find original keys (case-insensitive)
       const obj = {};
       for(const key of Object.keys(r)){
         obj[key.toLowerCase()] = r[key];
       }
+      
+      // Parse date if available
+      let date = null;
+      if (obj['date']) {
+        date = new Date(obj['date']);
+        if (isNaN(date.getTime())) {
+          // If date parsing fails, try common formats
+          const dateStr = obj['date'].toString().trim();
+          date = new Date(dateStr);
+          if (isNaN(date.getTime())) {
+            console.warn(`Invalid date format: ${dateStr}, using row index`);
+            date = new Date(2024, 0, idx + 1); // Fallback to sequential dates
+          }
+        }
+      } else {
+        date = new Date(2024, 0, idx + 1); // Fallback: sequential dates starting Jan 1, 2024
+      }
+      
       return {
         grade: normalizeName(obj['grade']),
-        color: normalizeName(obj['color'] ?? 'Unknown')
+        color: normalizeName(obj['color'] ?? 'Unknown'),
+        date: date,
+        originalIndex: idx
       };
     });
 
@@ -238,7 +271,12 @@
 
       // build dataset arrays: dataset per color, each dataset is an array of values per grade (matching grades order)
       const datasetsPerColor = colors.map(colorName => grades.map(gradeName => counts[gradeName][colorName] || 0));
-      frames.push({ datasets: datasetsPerColor, label: `Row ${idx+1}` });
+      frames.push({ 
+        datasets: datasetsPerColor, 
+        label: `Row ${idx+1}`,
+        date: r.date,
+        originalIndex: r.originalIndex
+      });
     });
 
     // now create chart with empty data (0s)
@@ -343,32 +381,19 @@
   function updateAverageGradeLine(frameIndex) {
     if (!chart || !frames.length) return;
     
-    // Calculate weighted average grade for current frame
-    const frame = frames[frameIndex];
-    let totalClimbs = 0;
-    let weightedSum = 0;
+    const aggregationType = aggregationSelect.value;
+    let result = calculateAggregation(frameIndex, aggregationType);
     
-    grades.forEach((grade, gradeIdx) => {
-      const gradeValue = gradeToNumber(grade);
-      if (gradeValue === Number.MAX_SAFE_INTEGER) return; // Skip unknown grades
-      
-      // Sum all colors for this grade
-      const gradeTotal = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
-      totalClimbs += gradeTotal;
-      weightedSum += gradeValue * gradeTotal;
-    });
-    
-    const averageGrade = totalClimbs > 0 ? weightedSum / totalClimbs : 0;
-    const averageDisplay = totalClimbs > 0 ? `Avg: V${averageGrade.toFixed(1)}` : 'Avg: --';
+    if (!result) return;
     
     // Find the closest grade index for positioning
     let closestIndex = 0;
-    let closestDiff = Math.abs(gradeToNumber(grades[0]) - averageGrade);
+    let closestDiff = Math.abs(gradeToNumber(grades[0]) - result.value);
     
     grades.forEach((grade, idx) => {
       const gradeNum = gradeToNumber(grade);
       if (gradeNum !== Number.MAX_SAFE_INTEGER) {
-        const diff = Math.abs(gradeNum - averageGrade);
+        const diff = Math.abs(gradeNum - result.value);
         if (diff < closestDiff) {
           closestDiff = diff;
           closestIndex = idx;
@@ -376,7 +401,7 @@
       }
     });
     
-    // Update chart annotation - try simpler approach
+    // Update chart annotation
     chart.options.plugins.annotation.annotations = {
       averageLine: {
         type: 'line',
@@ -387,7 +412,7 @@
         borderDash: [5, 5],
         label: {
           display: true,
-          content: averageDisplay,
+          content: result.display,
           position: 'end',
           backgroundColor: '#ff4444',
           color: 'white',
@@ -400,6 +425,80 @@
         }
       }
     };
+  }
+
+  function calculateAggregation(frameIndex, type) {
+    const frame = frames[frameIndex];
+    let gradeValues = [];
+    let totalClimbs = 0;
+    
+    // Collect all individual climb grades (expanded by count)
+    grades.forEach((grade, gradeIdx) => {
+      const gradeValue = gradeToNumber(grade);
+      if (gradeValue === Number.MAX_SAFE_INTEGER) return; // Skip unknown grades
+      
+      // Sum all colors for this grade
+      const gradeTotal = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
+      totalClimbs += gradeTotal;
+      
+      // Add this grade value repeated by its count
+      for (let i = 0; i < gradeTotal; i++) {
+        gradeValues.push(gradeValue);
+      }
+    });
+    
+    if (totalClimbs === 0) return null;
+    
+    switch (type) {
+      case 'average':
+        const avg = gradeValues.reduce((sum, val) => sum + val, 0) / gradeValues.length;
+        return { value: avg, display: `Avg: V${avg.toFixed(1)}` };
+        
+      case 'median':
+        gradeValues.sort((a, b) => a - b);
+        const mid = Math.floor(gradeValues.length / 2);
+        const median = gradeValues.length % 2 === 0 
+          ? (gradeValues[mid - 1] + gradeValues[mid]) / 2
+          : gradeValues[mid];
+        return { value: median, display: `Median: V${median.toFixed(1)}` };
+        
+      case 'rolling3':
+        // Calculate 3-month rolling average using actual dates
+        const currentDate = frames[frameIndex].date;
+        const threeMonthsAgo = new Date(currentDate);
+        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+        
+        let rollingValues = [];
+        
+        // Find all frames within the 3-month window
+        for (let i = 0; i <= frameIndex; i++) {
+          const frameDate = frames[i].date;
+          if (frameDate >= threeMonthsAgo && frameDate <= currentDate) {
+            const f = frames[i];
+            grades.forEach((grade, gradeIdx) => {
+              const gradeValue = gradeToNumber(grade);
+              if (gradeValue === Number.MAX_SAFE_INTEGER) return;
+              
+              const gradeTotal = f.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
+              for (let j = 0; j < gradeTotal; j++) {
+                rollingValues.push(gradeValue);
+              }
+            });
+          }
+        }
+        
+        if (rollingValues.length === 0) return null;
+        const rollingAvg = rollingValues.reduce((sum, val) => sum + val, 0) / rollingValues.length;
+        
+        // Calculate how many months of data we actually have
+        const monthsSpan = Math.max(1, Math.round((currentDate - threeMonthsAgo) / (30.44 * 24 * 60 * 60 * 1000))); // Average days per month
+        const actualMonths = Math.min(3, monthsSpan);
+        
+        return { value: rollingAvg, display: `${actualMonths}M Avg: V${rollingAvg.toFixed(1)}` };
+        
+      default:
+        return null;
+    }
   }
 
   // --- Play / Pause ---
@@ -432,6 +531,15 @@
           playPauseBtn.textContent = 'Play';
         }
       }, speed);
+    }
+  });
+
+  // --- Aggregation Selection ---
+  aggregationSelect.addEventListener('change', () => {
+    // Redraw current frame with new aggregation
+    if (chart && frames.length > 0) {
+      updateAverageGradeLine(currentFrame);
+      chart.update();
     }
   });
 
