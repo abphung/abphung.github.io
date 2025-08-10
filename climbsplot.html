@@ -255,7 +255,8 @@
       data: Array.from({length:grades.length}, () => 0),
       backgroundColor: getColorHex(c),
       borderColor: '#222',
-      borderWidth: 0.6
+      borderWidth: 0.6,
+      borderRadius: 6
     }));
 
     chart = new Chart(ctx, {
@@ -298,7 +299,8 @@
           data: valsPerGrade.slice(),
           backgroundColor: getColorHex(colors[datasetIdx] || ''),
           borderColor: '#222',
-          borderWidth: 0.6
+          borderWidth: 0.6,
+          borderRadius: 6
         });
       }
     });
@@ -402,7 +404,7 @@
       // Play
       isPlaying = true;
       playPauseBtn.textContent = 'Pause';
-      const speed = 350; // Fixed speed for auto-play
+      const speed = 15000/frames.length; // Fixed speed for auto-play
       if(playTimer) clearInterval(playTimer);
       playTimer = setInterval(() => {
         showFrame(currentFrame);
@@ -471,7 +473,8 @@
       data: Array.from({length:grades.length}, () => 0),
       backgroundColor: getColorHex(c),
       borderColor: '#222',
-      borderWidth: 0.6
+      borderWidth: 0.6,
+      borderRadius: 6
     }));
 
     const hiddenChart = new Chart(hiddenCtx, {
