@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Climb CSV → Stacked Horizontal Bar Animation (GIF)</title>
+  <style>
+    :root{--bg:#f7fafc;--card:#fff;--muted:#666}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg)}
+    .wrap{max-width:1100px;margin:20px auto;padding:18px}
+    h1{margin:0 0 10px;font-size:20px}
+    .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+    .card{background:var(--card);padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+    input[type=file]{display:inline-block}
+    label.small{font-size:13px;color:var(--muted)}
+    #chartWrap{width:100%;height:640px;display:flex;align-items:center;justify-content:center;padding:12px}
+    canvas{max-width:100%;max-height:100%}
+    button{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    a.downloadLink{font-weight:600;color:#0b5ff0}
+    #status{margin-top:10px;color:#222;min-height:20px}
+    .spinner{display:inline-block;width:16px;height:16px;border:2px solid #f3f3f3;border-top:2px solid #3498db;border-radius:50%;animation:spin 1s linear infinite;margin-right:8px}
+    @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+    @media (max-width:720px){ #chartWrap{height:520px} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Climb CSV → Stacked Horizontal Bar Animation (WebM Video)</h1>
+
+    <div class="controls card">
+      <input id="csvFile" type="file" accept=".csv" />
+      <button id="playPauseBtn" disabled>Play</button>
+      <label class="small">Frame: <input id="frameSlider" type="range" min="0" max="0" value="0" style="width:200px" disabled/> <span id="frameDisplay">0/0</span></label>
+      <label class="small" style="margin-left:15px">Average: <span id="avgDisplay">--</span></label>
+      <button id="saveVideoBtn" disabled>Save WebM Video</button>
+      <label class="small" style="margin-left:8px">Order: CSV (chronological)</label>
+    </div>
+
+    <div id="chartWrap" class="card">
+      <canvas id="barChart" width="1000" height="640"></canvas>
+    </div>
+
+    <div id="status" class="card" style="margin-top:12px;padding:10px;">
+      <div id="statusText">Choose a CSV file with `grade` and `color` columns (CSV header names must be `grade` and `color`). Missing color becomes "Unknown".</div>
+    </div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+  <script>
+  // --- Helpers & UI refs ---
+  const $ = s => document.querySelector(s);
+  const statusText = $('#statusText');
+  const csvFileInput = $('#csvFile');
+  const playPauseBtn = $('#playPauseBtn');
+  const saveVideoBtn = $('#saveVideoBtn');
+  const frameSlider = $('#frameSlider');
+  const frameDisplay = $('#frameDisplay');
+  const avgDisplay = $('#avgDisplay');
+  const canvas = document.getElementById('barChart');
+
+  // Internal state
+  let rawRows = [];
+  let grades = [];
+  let colors = [];
+  let frames = []; // each frame: {datasets: [array per color of values-per-grade], label}
+  let chart = null;
+  let playTimer = null;
+  let currentFrame = 0;
+  let isPlaying = false;
+  let hasCompletedOneCycle = false;
+
+  // --- Color mapping (common hold colors) ---
+  const colorMap = {
+    Pink:"#ffc0cb", Black:"#000000", Orange:"#ffa500", Purple:"#800080", White:"#ffffff",
+    Blue:"#1f77b4", Red:"#d62728", Yellow:"#ffdd57", Green:"#2ca02c", Gray:"#808080",
+    Grey:"#808080", Brown:"#8b4513", Tan:"#d2b48c", Gold:"#d4af37", Silver:"#c0c0c0",
+    Teal:"#008080", Lime:"#32cd32", Cyan:"#00bcd4", Magenta:"#ff00ff", Beige:"#f5f5dc"
+  };
+
+  function normalizeName(s){
+    if(s === undefined || s === null) return '';
+    return String(s).trim();
+  }
+
+  function getColorHex(name){
+    const clean = normalizeName(name);
+    if(!clean) return '#cccccc';
+    if(colorMap[clean]) return colorMap[clean];
+    // try case-insensitive matching (e.g., 'pink' -> 'Pink')
+    const key = Object.keys(colorMap).find(k => k.toLowerCase() === clean.toLowerCase());
+    if(key) return colorMap[key];
+    // fallback: generate consistent HSL color based on name hash
+    let hash = 0;
+    for(let i=0;i<clean.length;i++){ hash = clean.charCodeAt(i) + ((hash<<5)-hash); hash = hash & hash; }
+    const hue = ((hash % 360) + 360) % 360;
+    return `hsl(${hue} 60% 55%)`;
+  }
+
+  // parse grade like "v6", "V3", "6", return numeric; unknown -> large number
+  function gradeToNumber(g){
+    if(g === undefined || g === null) return Number.MAX_SAFE_INTEGER;
+    const s = String(g).trim();
+    const m = s.match(/(?:v)?\s*([+-]?\d+)/i);
+    if(m) return parseInt(m[1],10);
+    // handle things like "5+" or "5-"
+    const m2 = s.match(/([0-9]+)/);
+    if(m2) return parseInt(m2[1],10);
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  // --- CSV auto-load on file selection ---
+  csvFileInput.addEventListener('change', () => {
+    const f = csvFileInput.files[0];
+    if(!f) return;
+    
+    statusText.textContent = 'Parsing CSV...';
+    Papa.parse(f, {header:true, skipEmptyLines:true,
+      complete: (res) => {
+        rawRows = res.data;
+        try {
+          prepareFramesFromCSV(rawRows);
+          statusText.textContent = `Loaded ${rawRows.length} rows → ${frames.length} animation frames. Ready.`;
+          playPauseBtn.disabled = false;
+          saveVideoBtn.disabled = false;
+          frameSlider.disabled = false;
+          frameSlider.max = frames.length - 1;
+          frameDisplay.textContent = `1/${frames.length}`;
+          currentFrame = 0;
+          hasCompletedOneCycle = false;
+          showFrame(0); // Show first frame
+          
+          // Auto-start animation
+          setTimeout(() => {
+            if (!isPlaying) playPauseBtn.click();
+          }, 500);
+        } catch(e){
+          statusText.textContent = 'Error processing CSV: ' + e.message;
+          playPauseBtn.disabled = true;
+          saveVideoBtn.disabled = true;
+        }
+      },
+      error: (err) => {
+        statusText.textContent = 'CSV parse error: ' + err.message;
+      }
+    });
+  });
+
+  function prepareFramesFromCSV(rows){
+    if(!rows || !rows.length) throw new Error('CSV is empty.');
+
+    // ensure header includes grade & color (case-insensitive)
+    const headerKeys = Object.keys(rows[0]).map(k => k.toLowerCase());
+    const hasGrade = headerKeys.includes('grade');
+    const hasColor = headerKeys.includes('color');
+
+    if(!hasGrade) throw new Error('CSV header must include a "grade" column.');
+    // color missing is allowed, we'll map to "Unknown"
+
+    // normalize rows: ensure fields accessible
+    const normalizedRows = rows.map(r => {
+      // find original keys (case-insensitive)
+      const obj = {};
+      for(const key of Object.keys(r)){
+        obj[key.toLowerCase()] = r[key];
+      }
+      return {
+        grade: normalizeName(obj['grade']),
+        color: normalizeName(obj['color'] ?? 'Unknown')
+      };
+    });
+
+    // collect unique grades and colors over the entire CSV (so dataset ordering consistent)
+    const gradeSet = new Set();
+    const colorSet = new Set();
+    normalizedRows.forEach(r => {
+      if(r.grade) gradeSet.add(r.grade);
+      else gradeSet.add('UnknownGrade');
+      colorSet.add(r.color || 'Unknown');
+    });
+
+    // sort grades numerically (v0, v1, v2...)
+    grades = Array.from(gradeSet).sort((a,b) => {
+      const na = gradeToNumber(a), nb = gradeToNumber(b);
+      if(na === nb) return a.localeCompare(b);
+      return na - nb;
+    });
+
+    colors = Array.from(colorSet).sort((a,b) => {
+      // Priority order: white, pink, blue, black, orange, purple, green, red, yellow
+      const priority = ['white', 'pink', 'blue', 'black', 'orange', 'purple', 'green', 'red', 'yellow'];
+      const aIndex = priority.findIndex(p => p.toLowerCase() === a.toLowerCase());
+      const bIndex = priority.findIndex(p => p.toLowerCase() === b.toLowerCase());
+      
+      // If both colors are in priority list, sort by priority
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      // If only 'a' is in priority list, it comes first
+      if (aIndex !== -1) return -1;
+      // If only 'b' is in priority list, it comes first
+      if (bIndex !== -1) return 1;
+      // If neither is in priority list, sort alphabetically
+      return a.localeCompare(b);
+    });
+
+    // initialize counts: counts[grade][color] = 0
+    const counts = {};
+    grades.forEach(g => {
+      counts[g] = {};
+      colors.forEach(c => counts[g][c] = 0);
+    });
+
+    // build frames cumulatively - one frame per input row (skipping rows lacking grade)
+    frames = [];
+    normalizedRows.forEach((r, idx) => {
+      const g = r.grade || 'UnknownGrade';
+      const c = r.color || 'Unknown';
+
+      // if a grade/color appeared that we didn't see in initial pre-scan (unlikely), add them
+      if(!(g in counts)){
+        grades.push(g);
+        counts[g] = {};
+        colors.forEach(cc => counts[g][cc] = 0);
+      }
+      if(!(c in counts[g])){
+        // if color is new, add across all grades
+        colors.push(c);
+        for(const gg of grades) counts[gg][c] = counts[gg][c] || 0;
+      }
+
+      // increment
+      counts[g][c] = (counts[g][c] || 0) + 1;
+
+      // build dataset arrays: dataset per color, each dataset is an array of values per grade (matching grades order)
+      const datasetsPerColor = colors.map(colorName => grades.map(gradeName => counts[gradeName][colorName] || 0));
+      frames.push({ datasets: datasetsPerColor, label: `Row ${idx+1}` });
+    });
+
+    // now create chart with empty data (0s)
+    createChart();
+  }
+
+  // --- Chart creation & rendering ---
+  function createChart(){
+    if(chart) chart.destroy();
+    const ctx = canvas.getContext('2d');
+
+    // dataset objects (colors) with consistent color assignment
+    const datasets = colors.map(c => ({
+      label: c,
+      data: Array.from({length:grades.length}, () => 0),
+      backgroundColor: getColorHex(c),
+      borderColor: '#222',
+      borderWidth: 0.6
+    }));
+
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: grades,
+        datasets: datasets
+      },
+      options: {
+        indexAxis: 'y', // horizontal bars
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { enabled: true },
+          annotation: {
+            annotations: {}
+          }
+        },
+        scales: {
+          x: { stacked: true, beginAtZero: true, title: { display: true, text: 'Count' } },
+          y: { stacked: true, title: { display: true, text: 'Grade' } }
+        },
+        animation: { duration: 300, easing: 'linear' }
+      }
+    });
+  }
+
+  function showFrame(i){
+    if(!chart || !frames.length) return;
+    const frame = frames[i];
+    // frame.datasets is [ per color -> array of values per grade ]
+    frame.datasets.forEach((valsPerGrade, datasetIdx) => {
+      if(chart.data.datasets[datasetIdx]) {
+        chart.data.datasets[datasetIdx].data = valsPerGrade.slice();
+      } else {
+        // extra dataset — add it (shouldn't normally happen)
+        chart.data.datasets.push({
+          label: colors[datasetIdx] || `c${datasetIdx}`,
+          data: valsPerGrade.slice(),
+          backgroundColor: getColorHex(colors[datasetIdx] || ''),
+          borderColor: '#222',
+          borderWidth: 0.6
+        });
+      }
+    });
+    // ensure labels (grades) in chart match if new grade was added
+    chart.data.labels = grades.slice();
+    
+    // Calculate and display average
+    updateAverageDisplay(i);
+    
+    // Calculate and update average grade line
+    updateAverageGradeLine(i);
+    
+    chart.update();
+  }
+
+  function updateAverageDisplay(frameIndex) {
+    if (!frames.length) {
+      avgDisplay.textContent = '--';
+      return;
+    }
+    
+    const frame = frames[frameIndex];
+    let totalClimbs = 0;
+    let gradeSum = 0;
+    
+    grades.forEach((grade, gradeIdx) => {
+      const climbs = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
+      if (climbs > 0) {
+        totalClimbs += climbs;
+        const gradeNum = gradeToNumber(grade);
+        if (gradeNum !== Number.MAX_SAFE_INTEGER) {
+          gradeSum += gradeNum * climbs;
+        }
+      }
+    });
+    
+    if (totalClimbs === 0) {
+      avgDisplay.textContent = '--';
+    } else {
+      const averageGradeValue = gradeSum / totalClimbs;
+      avgDisplay.textContent = `V${averageGradeValue.toFixed(1)}`;
+    }
+  }
+
+  function updateAverageGradeLine(frameIndex) {
+    if (!chart || !frames.length) return;
+    
+    // Calculate weighted average grade for current frame
+    const frame = frames[frameIndex];
+    let totalClimbs = 0;
+    let weightedSum = 0;
+    
+    grades.forEach((grade, gradeIdx) => {
+      const gradeValue = gradeToNumber(grade);
+      if (gradeValue === Number.MAX_SAFE_INTEGER) return; // Skip unknown grades
+      
+      // Sum all colors for this grade
+      const gradeTotal = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
+      totalClimbs += gradeTotal;
+      weightedSum += gradeValue * gradeTotal;
+    });
+    
+    const averageGrade = totalClimbs > 0 ? weightedSum / totalClimbs : 0;
+    
+    // Update chart annotation
+    if (!chart.options.plugins.annotation) {
+      chart.options.plugins.annotation = { annotations: {} };
+    }
+    
+    chart.options.plugins.annotation.annotations = {
+      averageLine: {
+        type: 'line',
+        yMin: averageGrade - 1,
+        yMax: averageGrade - 1,
+        borderColor: '#ff4444',
+        borderWidth: 3,
+        borderDash: [5, 5],
+        label: {
+          content: `Avg: ${averageGrade.toFixed(1)}`,
+          enabled: true,
+          position: 'end',
+          backgroundColor: '#ff4444',
+          color: 'white',
+          font: { size: 12, weight: 'bold' },
+          padding: 4
+        }
+      }
+    };
+  }
+
+  // --- Play / Pause ---
+  playPauseBtn.addEventListener('click', () => {
+    if(!frames.length) return;
+    
+    if (isPlaying) {
+      // Pause
+      if(playTimer) { clearInterval(playTimer); playTimer = null; }
+      isPlaying = false;
+      playPauseBtn.textContent = 'Play';
+    } else {
+      // Play
+      isPlaying = true;
+      playPauseBtn.textContent = 'Pause';
+      const speed = 350; // Fixed speed for auto-play
+      if(playTimer) clearInterval(playTimer);
+      playTimer = setInterval(() => {
+        showFrame(currentFrame);
+        frameSlider.value = currentFrame;
+        frameDisplay.textContent = `${currentFrame + 1}/${frames.length}`;
+        currentFrame = (currentFrame + 1) % frames.length;
+        
+        // Pause once all frames are rendered (when we loop back to frame 0 after completing one cycle)
+        if (currentFrame === 0 && hasCompletedOneCycle) {
+          clearInterval(playTimer);
+          playTimer = null;
+          isPlaying = false;
+          playPauseBtn.textContent = 'Play';
+        }
+        
+        // Mark that we've completed one cycle when we reach the last frame
+        if (currentFrame === 0) {
+          hasCompletedOneCycle = true;
+        }
+      }, speed);
+    }
+  });
+
+  // --- Frame Slider Control ---
+  frameSlider.addEventListener('input', () => {
+    const frameIndex = parseInt(frameSlider.value);
+    currentFrame = frameIndex;
+    showFrame(frameIndex);
+    frameDisplay.textContent = `${frameIndex + 1}/${frames.length}`;
+    
+    // Pause animation if playing
+    if(playTimer) {
+      clearInterval(playTimer);
+      playTimer = null;
+      isPlaying = false;
+      playPauseBtn.textContent = 'Play';
+      hasCompletedOneCycle = false; // Reset cycle tracking when manually scrubbing
+    }
+  });
+
+  // --- Export Video using MediaRecorder ---
+  saveVideoBtn.addEventListener('click', async () => {
+    if(!frames.length) return;
+    
+    // Check if MediaRecorder is supported
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+      statusText.innerHTML = 'Video recording not supported in this browser. Try Chrome/Firefox or <button onclick="exportFramesAsZip()">Download Frames as ZIP</button>';
+      return;
+    }
+
+    const delay = 350; // Fixed delay for video recording
+    statusText.innerHTML = '<div class="spinner"></div>Preparing video recording...';
+    saveVideoBtn.disabled = true;
+
+    // Create a hidden canvas for background rendering
+    const hiddenCanvas = document.createElement('canvas');
+    hiddenCanvas.width = canvas.width;
+    hiddenCanvas.height = canvas.height;
+    hiddenCanvas.style.display = 'none';
+    document.body.appendChild(hiddenCanvas);
+
+    // Create hidden chart instance for background rendering
+    const hiddenCtx = hiddenCanvas.getContext('2d');
+    const datasets = colors.map(c => ({
+      label: c,
+      data: Array.from({length:grades.length}, () => 0),
+      backgroundColor: getColorHex(c),
+      borderColor: '#222',
+      borderWidth: 0.6
+    }));
+
+    const hiddenChart = new Chart(hiddenCtx, {
+      type: 'bar',
+      data: {
+        labels: grades,
+        datasets: datasets
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: false,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { enabled: false }
+        },
+        scales: {
+          x: { stacked: true, beginAtZero: true, title: { display: true, text: 'Count' } },
+          y: { stacked: true, title: { display: true, text: 'Grade' } }
+        },
+        animation: { duration: 0 } // No animation for background rendering
+      }
+    });
+
+    try {
+      const stream = hiddenCanvas.captureStream(30); // 30 FPS
+      const recorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp9',
+        videoBitsPerSecond: 2500000
+      });
+
+      const chunks = [];
+      recorder.ondataavailable = e => chunks.push(e.data);
+      
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'climb-animation.webm';
+        a.textContent = 'Download Video';
+        a.className = 'downloadLink';
+        statusText.innerHTML = '';
+        statusText.appendChild(a);
+        saveVideoBtn.disabled = false;
+        
+        // Cleanup
+        hiddenChart.destroy();
+        document.body.removeChild(hiddenCanvas);
+      };
+
+      statusText.innerHTML = '<div class="spinner"></div>Starting video recording...';
+      recorder.start();
+
+      // Function to update hidden chart frame
+      const updateHiddenFrame = (i) => {
+        const frame = frames[i];
+        frame.datasets.forEach((valsPerGrade, datasetIdx) => {
+          if(hiddenChart.data.datasets[datasetIdx]) {
+            hiddenChart.data.datasets[datasetIdx].data = valsPerGrade.slice();
+          }
+        });
+        hiddenChart.data.labels = grades.slice();
+        hiddenChart.update();
+      };
+
+      // Render all frames in background while showing progress
+      for(let i = 0; i < frames.length; i++) {
+        updateHiddenFrame(i);
+        await new Promise(r => setTimeout(r, delay));
+        const percent = Math.round((i + 1) / frames.length * 100);
+        statusText.innerHTML = `<div class="spinner"></div>Recording frame ${i+1}/${frames.length} (${percent}%)`;
+      }
+
+      // Stop recording after a brief pause
+      await new Promise(r => setTimeout(r, 500));
+      statusText.innerHTML = '<div class="spinner"></div>Finalizing video...';
+      recorder.stop();
+
+    } catch (error) {
+      statusText.innerHTML = `Recording failed: ${error.message}. <button onclick="exportFramesAsZip()">Download Frames as ZIP instead</button>`;
+      saveVideoBtn.disabled = false;
+      
+      // Cleanup on error
+      if (hiddenChart) hiddenChart.destroy();
+      if (hiddenCanvas && hiddenCanvas.parentNode) {
+        document.body.removeChild(hiddenCanvas);
+      }
+    }
+  });
+
+  // Alternative: Export individual frames as PNG files in a ZIP
+  window.exportFramesAsZip = async () => {
+    if(!frames.length) return;
+    
+    statusText.textContent = 'Preparing frame images...';
+    const oldAnimation = chart.options.animation ? chart.options.animation.duration : 300;
+    chart.options.animation = { duration: 0 };
+
+    const zip = new JSZip(); // We'll need to add this library if we want ZIP support
+    
+    for(let i = 0; i < frames.length; i++) {
+      showFrame(i);
+      await new Promise(r => setTimeout(r, 30));
+      
+      // Convert canvas to blob
+      const dataUrl = canvas.toDataURL('image/png');
+      const base64Data = dataUrl.split(',')[1];
+      zip.file(`frame_${String(i+1).padStart(3, '0')}.png`, base64Data, {base64: true});
+      
+      statusText.textContent = `Exporting frame ${i+1}/${frames.length}`;
+    }
+
+    const content = await zip.generateAsync({type: 'blob'});
+    const url = URL.createObjectURL(content);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'climb-animation-frames.zip';
+    a.textContent = 'Download Frames ZIP';
+    a.className = 'downloadLink';
+    statusText.textContent = '';
+    statusText.appendChild(a);
+    
+    chart.options.animation = { duration: oldAnimation };
+  };
+
+  // Drag & drop support
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    if(e.dataTransfer.files && e.dataTransfer.files.length){
+      csvFileInput.files = e.dataTransfer.files;
+      // Trigger the change event to auto-load
+      csvFileInput.dispatchEvent(new Event('change'));
+    }
+  });
+  </script>
+</body>
+</html>
