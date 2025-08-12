@@ -24,6 +24,11 @@
     @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
     #frameSlider{flex:1;min-width:100px}
     #frameDisplay{white-space:nowrap}
+    .data-table{max-height:300px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px}
+    .data-table table{width:100%;border-collapse:collapse;font-size:13px}
+    .data-table th,.data-table td{padding:8px 12px;text-align:left;border-bottom:1px solid #e2e8f0}
+    .data-table th{background:#f8fafc;font-weight:600;position:sticky;top:0;z-index:1}
+    .data-table tbody tr:hover{background:#f8fafc}
     @media (max-width:720px){ 
       #chartWrap{height:520px}
     }
@@ -47,8 +52,27 @@
       <select id="aggregationSelect">
         <option value="average">Average</option>
         <option value="median">Median</option>
-        <option value="rolling3">3 Month Rolling Avg</option>
+        <option value="rolling7d">7 Day Moving Avg</option>
+        <option value="rolling1m">1 Month Moving Avg</option>
+        <option value="rolling3m">3 Month Moving Avg</option>
       </select>
+    </div>
+
+    <div id="aggregationDataWrap" class="card" style="display:none;margin-bottom:20px;">
+      <h3 style="margin:0 0 15px;font-size:16px;" id="dataTableTitle">Aggregation Data Points</h3>
+      <div class="data-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Grade</th>
+              <th>Color</th>
+            </tr>
+          </thead>
+          <tbody id="dataTableBody">
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div id="status" class="card" style="margin-top:12px;padding:10px;">
@@ -75,17 +99,19 @@
   const chartWrap = $('#chartWrap');
   const playbackControls = $('#playbackControls');
   const fileControls = $('#fileControls');
+  const aggregationDataWrap = $('#aggregationDataWrap');
+  const dataTableBody = $('#dataTableBody');
+  const dataTableTitle = $('#dataTableTitle');
 
   // Internal state
   let rawRows = [];
   let grades = [];
   let colors = [];
-  let frames = []; // each frame: {datasets: [array per color of values-per-grade], label, date}
+  let frames = []; // each frame: {datasets: [array per color of values-per-grade], label, date, rawData}
   let chart = null;
   let playTimer = null;
   let currentFrame = 0;
   let isPlaying = false;
-
 
   // --- Color mapping (common hold colors) ---
   const colorMap = {
@@ -143,6 +169,7 @@
           fileControls.style.display = 'none';
           chartWrap.style.display = 'block';
           playbackControls.style.display = 'flex';
+          aggregationDataWrap.style.display = 'block';
           
           frameSlider.max = frames.length - 1;
           frameDisplay.textContent = `1/${frames.length}`;
@@ -173,8 +200,6 @@
     const hasDate = headerKeys.includes('date');
 
     if(!hasGrade) throw new Error('CSV header must include a "grade" column.');
-    // color missing is allowed, we'll map to "Unknown"
-    // date missing will use row index
 
     // normalize rows: ensure fields accessible
     const normalizedRows = rows.map((r, idx) => {
@@ -189,16 +214,15 @@
       if (obj['date']) {
         date = new Date(obj['date']);
         if (isNaN(date.getTime())) {
-          // If date parsing fails, try common formats
           const dateStr = obj['date'].toString().trim();
           date = new Date(dateStr);
           if (isNaN(date.getTime())) {
             console.warn(`Invalid date format: ${dateStr}, using row index`);
-            date = new Date(2024, 0, idx + 1); // Fallback to sequential dates
+            date = new Date(2024, 0, idx + 1);
           }
         }
       } else {
-        date = new Date(2024, 0, idx + 1); // Fallback: sequential dates starting Jan 1, 2024
+        date = new Date(2024, 0, idx + 1);
       }
       
       return {
@@ -209,7 +233,7 @@
       };
     });
 
-    // collect unique grades and colors over the entire CSV (so dataset ordering consistent)
+    // collect unique grades and colors
     const gradeSet = new Set();
     const colorSet = new Set();
     normalizedRows.forEach(r => {
@@ -218,7 +242,7 @@
       colorSet.add(r.color || 'Unknown');
     });
 
-    // sort grades numerically (v0, v1, v2...)
+    // sort grades numerically
     grades = Array.from(gradeSet).sort((a,b) => {
       const na = gradeToNumber(a), nb = gradeToNumber(b);
       if(na === nb) return a.localeCompare(b);
@@ -226,60 +250,62 @@
     });
 
     colors = Array.from(colorSet).sort((a,b) => {
-      // Priority order: white, pink, blue, black, orange, purple, green, red, yellow
       const priority = ['white', 'pink', 'blue', 'black', 'orange', 'purple', 'green', 'red', 'yellow'];
       const aIndex = priority.findIndex(p => p.toLowerCase() === a.toLowerCase());
       const bIndex = priority.findIndex(p => p.toLowerCase() === b.toLowerCase());
       
-      // If both colors are in priority list, sort by priority
       if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-      // If only 'a' is in priority list, it comes first
       if (aIndex !== -1) return -1;
-      // If only 'b' is in priority list, it comes first
       if (bIndex !== -1) return 1;
-      // If neither is in priority list, sort alphabetically
       return a.localeCompare(b);
     });
 
-    // initialize counts: counts[grade][color] = 0
+    // initialize counts
     const counts = {};
     grades.forEach(g => {
       counts[g] = {};
       colors.forEach(c => counts[g][c] = 0);
     });
 
-    // build frames cumulatively - one frame per input row (skipping rows lacking grade)
+    // build frames cumulatively
     frames = [];
+    let cumulativeData = []; // Keep track of all data up to this point
+    
     normalizedRows.forEach((r, idx) => {
       const g = r.grade || 'UnknownGrade';
       const c = r.color || 'Unknown';
 
-      // if a grade/color appeared that we didn't see in initial pre-scan (unlikely), add them
+      // Add this climb to cumulative data
+      cumulativeData.push({
+        grade: g,
+        color: c,
+        date: r.date,
+        gradeNumber: gradeToNumber(g)
+      });
+
+      // increment counts
       if(!(g in counts)){
         grades.push(g);
         counts[g] = {};
         colors.forEach(cc => counts[g][cc] = 0);
       }
       if(!(c in counts[g])){
-        // if color is new, add across all grades
         colors.push(c);
         for(const gg of grades) counts[gg][c] = counts[gg][c] || 0;
       }
-
-      // increment
       counts[g][c] = (counts[g][c] || 0) + 1;
 
-      // build dataset arrays: dataset per color, each dataset is an array of values per grade (matching grades order)
+      // build dataset arrays
       const datasetsPerColor = colors.map(colorName => grades.map(gradeName => counts[gradeName][colorName] || 0));
       frames.push({ 
         datasets: datasetsPerColor, 
         label: `Row ${idx+1}`,
         date: r.date,
-        originalIndex: r.originalIndex
+        originalIndex: r.originalIndex,
+        cumulativeData: [...cumulativeData] // Copy of all data up to this point
       });
     });
 
-    // now create chart with empty data (0s)
     createChart();
   }
 
@@ -288,10 +314,7 @@
     if(chart) chart.destroy();
     const ctx = canvas.getContext('2d');
 
-    // Calculate the maximum total count for any grade across all frames
     const maxCount = calculateMaxCount();
-
-    // dataset objects (colors) with consistent color assignment
     const datasets = colors.map(c => ({
       label: c,
       data: Array.from({length:grades.length}, () => 0),
@@ -308,7 +331,7 @@
         datasets: datasets
       },
       options: {
-        indexAxis: 'y', // horizontal bars
+        indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
@@ -334,48 +357,30 @@
 
   function calculateMaxCount() {
     if (!frames.length) return 100;
-    
     let maxCount = 0;
-    
-    // Check each frame to find the maximum total count for any grade
     frames.forEach(frame => {
       grades.forEach((grade, gradeIdx) => {
-        // Sum all colors for this grade in this frame
         const gradeTotal = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
         maxCount = Math.max(maxCount, gradeTotal);
       });
     });
-    
-    // Add a small buffer (10%) to the max count for better visual spacing
     return Math.ceil(maxCount * 1.1);
   }
 
   function showFrame(i){
     if(!chart || !frames.length) return;
     const frame = frames[i];
-    // frame.datasets is [ per color -> array of values per grade ]
+    
     frame.datasets.forEach((valsPerGrade, datasetIdx) => {
       if(chart.data.datasets[datasetIdx]) {
         chart.data.datasets[datasetIdx].data = valsPerGrade.slice();
-      } else {
-        // extra dataset — add it (shouldn't normally happen)
-        chart.data.datasets.push({
-          label: colors[datasetIdx] || `c${datasetIdx}`,
-          data: valsPerGrade.slice(),
-          backgroundColor: getColorHex(colors[datasetIdx] || ''),
-          borderColor: '#222',
-          borderWidth: 0.6,
-          borderRadius: 6
-        });
       }
     });
-    // ensure labels (grades) in chart match if new grade was added
+    
     chart.data.labels = grades.slice();
-    
-    // Calculate and update average grade line
     updateAverageGradeLine(i);
-    
     chart.update();
+    updateDataTable(i);
   }
 
   function updateAverageGradeLine(frameIndex) {
@@ -401,7 +406,6 @@
       }
     });
     
-    // Update chart annotation
     chart.options.plugins.annotation.annotations = {
       averageLine: {
         type: 'line',
@@ -428,26 +432,11 @@
   }
 
   function calculateAggregation(frameIndex, type) {
-    const frame = frames[frameIndex];
-    let gradeValues = [];
-    let totalClimbs = 0;
+    const dataPoints = getAggregationDataPoints(frameIndex, type);
+    if (!dataPoints || dataPoints.length === 0) return null;
     
-    // Collect all individual climb grades (expanded by count)
-    grades.forEach((grade, gradeIdx) => {
-      const gradeValue = gradeToNumber(grade);
-      if (gradeValue === Number.MAX_SAFE_INTEGER) return; // Skip unknown grades
-      
-      // Sum all colors for this grade
-      const gradeTotal = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
-      totalClimbs += gradeTotal;
-      
-      // Add this grade value repeated by its count
-      for (let i = 0; i < gradeTotal; i++) {
-        gradeValues.push(gradeValue);
-      }
-    });
-    
-    if (totalClimbs === 0) return null;
+    const gradeValues = dataPoints.map(p => p.gradeNumber).filter(v => v !== Number.MAX_SAFE_INTEGER);
+    if (gradeValues.length === 0) return null;
     
     switch (type) {
       case 'average':
@@ -462,43 +451,127 @@
           : gradeValues[mid];
         return { value: median, display: `Median: V${median.toFixed(1)}` };
         
-      case 'rolling3':
-        // Calculate 3-month rolling average using actual dates
-        const currentDate = frames[frameIndex].date;
-        const threeMonthsAgo = new Date(currentDate);
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-        
-        let rollingValues = [];
-        
-        // Find all frames within the 3-month window
-        for (let i = 0; i <= frameIndex; i++) {
-          const frameDate = frames[i].date;
-          if (frameDate >= threeMonthsAgo && frameDate <= currentDate) {
-            const f = frames[i];
-            grades.forEach((grade, gradeIdx) => {
-              const gradeValue = gradeToNumber(grade);
-              if (gradeValue === Number.MAX_SAFE_INTEGER) return;
-              
-              const gradeTotal = f.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
-              for (let j = 0; j < gradeTotal; j++) {
-                rollingValues.push(gradeValue);
-              }
-            });
-          }
-        }
-        
-        if (rollingValues.length === 0) return null;
-        const rollingAvg = rollingValues.reduce((sum, val) => sum + val, 0) / rollingValues.length;
-        
-        // Calculate how many months of data we actually have
-        const monthsSpan = Math.max(1, Math.round((currentDate - threeMonthsAgo) / (30.44 * 24 * 60 * 60 * 1000))); // Average days per month
-        const actualMonths = Math.min(3, monthsSpan);
-        
-        return { value: rollingAvg, display: `${actualMonths}M Avg: V${rollingAvg.toFixed(1)}` };
+      case 'rolling7d':
+      case 'rolling1m':
+      case 'rolling3m':
+        const avg2 = gradeValues.reduce((sum, val) => sum + val, 0) / gradeValues.length;
+        const period = type === 'rolling7d' ? '7d' : type === 'rolling1m' ? '1M' : '3M';
+        return { value: avg2, display: `${period} Avg: V${avg2.toFixed(1)}` };
         
       default:
         return null;
     }
+  }
+
+  function getAggregationDataPoints(frameIndex, type) {
+    const frame = frames[frameIndex];
+    
+    switch (type) {
+      case 'average':
+      case 'median':
+        return frame.cumulativeData;
+        
+      case 'rolling7d':
+        return getRollingDataPoints(frameIndex, 7, 'days');
+        
+      case 'rolling1m':
+        return getRollingDataPoints(frameIndex, 1, 'months');
+        
+      case 'rolling3m':
+        return getRollingDataPoints(frameIndex, 3, 'months');
+        
+      default:
+        return [];
+    }
+  }
+
+  function getRollingDataPoints(frameIndex, period, unit) {
+    const currentDate = frames[frameIndex].date;
+    const startDate = new Date(currentDate);
+    
+    if (unit === 'days') {
+      startDate.setDate(startDate.getDate() - period);
+    } else if (unit === 'months') {
+      startDate.setMonth(startDate.getMonth() - period);
+    }
+    
+    let dataPoints = [];
+    
+    for (let i = 0; i <= frameIndex; i++) {
+      const frameDate = frames[i].date;
+      if (frameDate >= startDate && frameDate <= currentDate) {
+        // Add all climbs from this frame
+        frames[i].cumulativeData.forEach(climb => {
+          if (climb.date >= startDate && climb.date <= currentDate) {
+            dataPoints.push(climb);
+          }
+        });
+      }
+    }
+    
+    // Remove duplicates and keep only the most recent occurrence of each climb
+    const uniqueDataPoints = [];
+    const seen = new Set();
+    
+    // Sort by date descending to keep most recent
+    dataPoints.sort((a, b) => b.date - a.date);
+    
+    dataPoints.forEach(point => {
+      const key = `${point.date.getTime()}-${point.grade}-${point.color}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueDataPoints.push(point);
+      }
+    });
+    
+    return uniqueDataPoints.reverse(); // Return in chronological order
+  }
+
+  function updateDataTable(frameIndex) {
+    const aggregationType = aggregationSelect.value;
+    const dataPoints = getAggregationDataPoints(frameIndex, aggregationType);
+    
+    // Update title
+    const typeLabels = {
+      'average': 'Average (All Climbs)',
+      'median': 'Median (All Climbs)', 
+      'rolling7d': '7-Day Rolling Average',
+      'rolling1m': '1-Month Rolling Average',
+      'rolling3m': '3-Month Rolling Average'
+    };
+    dataTableTitle.textContent = `${typeLabels[aggregationType]} - Data Points (${dataPoints.length} climbs)`;
+    
+    // Clear and populate table
+    dataTableBody.innerHTML = '';
+    
+    if (dataPoints.length === 0) {
+      const row = dataTableBody.insertRow();
+      const cell = row.insertCell();
+      cell.colSpan = 3;
+      cell.textContent = 'No data points in current window';
+      cell.style.textAlign = 'center';
+      cell.style.fontStyle = 'italic';
+      cell.style.color = '#666';
+      return;
+    }
+    
+    // Sort by date (most recent first)
+    dataPoints.sort((a, b) => b.date - a.date);
+    
+    dataPoints.forEach(point => {
+      const row = dataTableBody.insertRow();
+      
+      const dateCell = row.insertCell();
+      dateCell.textContent = point.date.toLocaleDateString();
+      
+      const gradeCell = row.insertCell();
+      gradeCell.textContent = point.grade;
+      
+      const colorCell = row.insertCell();
+      colorCell.textContent = point.color;
+      colorCell.style.color = getColorHex(point.color);
+      colorCell.style.fontWeight = 'bold';
+    });
   }
 
   // --- Play / Pause ---
@@ -506,15 +579,13 @@
     if(!frames.length) return;
     
     if (isPlaying) {
-      // Pause
       if(playTimer) { clearInterval(playTimer); playTimer = null; }
       isPlaying = false;
       playPauseBtn.textContent = 'Play';
     } else {
-      // Play
       isPlaying = true;
       playPauseBtn.textContent = 'Pause';
-      const speed = 15000/frames.length; // Fixed speed for auto-play
+      const speed = 15000/frames.length;
       if(playTimer) clearInterval(playTimer);
       playTimer = setInterval(() => {
         showFrame(currentFrame);
@@ -522,9 +593,8 @@
         frameDisplay.textContent = `${currentFrame + 1}/${frames.length}`;
         currentFrame++;
         
-        // Pause when we reach the end
         if (currentFrame >= frames.length) {
-          currentFrame = frames.length - 1; // Stay on last frame
+          currentFrame = frames.length - 1;
           clearInterval(playTimer);
           playTimer = null;
           isPlaying = false;
@@ -536,10 +606,10 @@
 
   // --- Aggregation Selection ---
   aggregationSelect.addEventListener('change', () => {
-    // Redraw current frame with new aggregation
     if (chart && frames.length > 0) {
       updateAverageGradeLine(currentFrame);
       chart.update();
+      updateDataTable(currentFrame);
     }
   });
 
@@ -550,7 +620,6 @@
     showFrame(frameIndex);
     frameDisplay.textContent = `${frameIndex + 1}/${frames.length}`;
     
-    // Pause animation if playing
     if(playTimer) {
       clearInterval(playTimer);
       playTimer = null;
@@ -565,7 +634,6 @@
     e.preventDefault();
     if(e.dataTransfer.files && e.dataTransfer.files.length){
       csvFileInput.files = e.dataTransfer.files;
-      // Trigger the change event to auto-load
       csvFileInput.dispatchEvent(new Event('change'));
     }
   });
