@@ -18,7 +18,7 @@
     label.small{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex:1;min-width:0}
     #chartWrap{height:640px;display:flex;align-items:center;justify-content:center;}
 
-    button{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer}
+    button{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer;font-size:16px;display:flex;align-items:center;gap:6px;}
     button:disabled{opacity:.5;cursor:not-allowed}
     select{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer;font-size:13px}
     a.downloadLink{font-weight:600;color:#0b5ff0}
@@ -39,9 +39,6 @@
     }
     
     .settings-btn {
-      display: flex;
-      align-items: center;
-      gap: 4px;
       padding: 8px 12px;
       background: #f8fafc;
       border: 1px solid #e2e8f0;
@@ -136,18 +133,6 @@
       background: #f3f4f6;
     }
     
-    /* Settings icon using CSS */
-    .settings-icon {
-      width: 14px;
-      height: 14px;
-      position: relative;
-    }
-    
-    .settings-icon::before {
-      content: '⚙';
-      font-size: 14px;
-    }
-    
     @media (max-width:720px){ 
       #chartWrap{height:520px}
       .settings-menu {
@@ -170,13 +155,12 @@
     </div>
 
     <div id="playbackControls" class="controls card" style="display:none;">
-      <button id="playPauseBtn">Play</button>
+      <button id="playPauseBtn">▶️</button>
       <label class="small"><span id="frameDisplay">0/0</span><input id="frameSlider" type="range" min="0" max="0" value="0"/> </label>
       
       <div class="settings-container">
         <button class="settings-btn" id="settingsBtn">
-          <span class="settings-icon"></span>
-          Settings
+          ⚙️
         </button>
         <div class="settings-menu" id="settingsMenu">
           <div class="settings-label">Aggregation Method</div>
@@ -349,6 +333,7 @@
         chart.data.datasets.forEach(dataset => {
           dataset.data = Array.from({length: grades.length}, () => 0);
         });
+        updateAverageGradeLine(0);
         chart.update();
       }
       frameSlider.max = 0;
@@ -374,7 +359,7 @@
       clearInterval(playTimer);
       playTimer = null;
       isPlaying = false;
-      playPauseBtn.textContent = 'Play';
+      playPauseBtn.textContent = '▶️';
     }
   }
 
@@ -482,9 +467,6 @@
     // ensure header includes grade & color (case-insensitive)
     const headerKeys = Object.keys(rows[0]).map(k => k.toLowerCase());
     const hasGrade = headerKeys.includes('grade');
-    const hasColor = headerKeys.includes('color');
-    const hasDate = headerKeys.includes('date');
-    const hasGym = headerKeys.includes('gym');
 
     if(!hasGrade) throw new Error('CSV header must include a "grade" column.');
 
@@ -509,8 +491,8 @@
     // Create gym filter checkboxes
     createGymFilterCheckboxes();
     
-    // Process the data
-    prepareFramesFromRows(rows);
+    // Initial data processing with default filter
+    rebuildFramesWithFilter();
   }
 
   function prepareFramesFromRows(rows) {
@@ -594,7 +576,8 @@
         grade: g,
         color: c,
         date: r.date,
-        gradeNumber: gradeToNumber(g)
+        gradeNumber: gradeToNumber(g),
+        gym: r.gym
       });
 
       // increment counts
@@ -698,12 +681,20 @@
   }
 
   function updateAverageGradeLine(frameIndex) {
-    if (!chart || !frames.length) return;
+    if (!chart || !frames.length) {
+        if(chart) {
+            chart.options.plugins.annotation.annotations = {};
+        }
+        return;
+    };
     
     const aggregationType = aggregationSelect.value;
     let result = calculateAggregation(frameIndex, aggregationType);
     
-    if (!result) return;
+    if (!result) {
+        chart.options.plugins.annotation.annotations = {};
+        return;
+    };
     
     // Find the closest grade index for positioning
     let closestIndex = 0;
@@ -779,6 +770,7 @@
 
   function getAggregationDataPoints(frameIndex, type) {
     const frame = frames[frameIndex];
+    if (!frame) return [];
     
     switch (type) {
       case 'average':
@@ -800,45 +792,22 @@
   }
 
   function getRollingDataPoints(frameIndex, period, unit) {
-    const currentDate = frames[frameIndex].date;
+    const frame = frames[frameIndex];
+    if (!frame || !frame.cumulativeData) return [];
+
+    const currentDate = frame.date;
     const startDate = new Date(currentDate);
-    
+
     if (unit === 'days') {
       startDate.setDate(startDate.getDate() - period);
     } else if (unit === 'months') {
       startDate.setMonth(startDate.getMonth() - period);
     }
-    
-    let dataPoints = [];
-    
-    for (let i = 0; i <= frameIndex; i++) {
-      const frameDate = frames[i].date;
-      if (frameDate >= startDate && frameDate <= currentDate) {
-        // Add all climbs from this frame
-        frames[i].cumulativeData.forEach(climb => {
-          if (climb.date >= startDate && climb.date <= currentDate) {
-            dataPoints.push(climb);
-          }
-        });
-      }
-    }
-    
-    // Remove duplicates and keep only the most recent occurrence of each climb
-    const uniqueDataPoints = [];
-    const seen = new Set();
-    
-    // Sort by date descending to keep most recent
-    dataPoints.sort((a, b) => b.date - a.date);
-    
-    dataPoints.forEach(point => {
-      const key = `${point.date.getTime()}-${point.grade}-${point.color}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        uniqueDataPoints.push(point);
-      }
+
+    return frame.cumulativeData.filter(climb => {
+      const climbDate = new Date(climb.date);
+      return climbDate >= startDate && climbDate <= currentDate;
     });
-    
-    return uniqueDataPoints.reverse(); // Return in chronological order
   }
 
   function updateDataTable(frameIndex) {
@@ -853,12 +822,12 @@
       'rolling1m': '1-Month Rolling Average',
       'rolling3m': '3-Month Rolling Average'
     };
-    dataTableTitle.textContent = `${typeLabels[aggregationType]} - Data Points (${dataPoints.length} climbs)`;
+    dataTableTitle.textContent = `${typeLabels[aggregationType]} - Data Points (${dataPoints ? dataPoints.length : 0} climbs)`;
     
     // Clear and populate table
     dataTableBody.innerHTML = '';
     
-    if (dataPoints.length === 0) {
+    if (!dataPoints || dataPoints.length === 0) {
       const row = dataTableBody.insertRow();
       const cell = row.insertCell();
       cell.colSpan = 4;
@@ -900,10 +869,14 @@
     if (isPlaying) {
       if(playTimer) { clearInterval(playTimer); playTimer = null; }
       isPlaying = false;
-      playPauseBtn.textContent = 'Play';
+      playPauseBtn.textContent = '▶️';
     } else {
+      // If animation is at the end, restart it
+      if (currentFrame >= frames.length - 1) {
+        currentFrame = 0;
+      }
       isPlaying = true;
-      playPauseBtn.textContent = 'Pause';
+      playPauseBtn.textContent = '⏸️';
       const speed = 15000/frames.length;
       if(playTimer) clearInterval(playTimer);
       playTimer = setInterval(() => {
@@ -917,7 +890,7 @@
           clearInterval(playTimer);
           playTimer = null;
           isPlaying = false;
-          playPauseBtn.textContent = 'Play';
+          playPauseBtn.textContent = '▶️';
         }
       }, speed);
     }
@@ -943,7 +916,7 @@
       clearInterval(playTimer);
       playTimer = null;
       isPlaying = false;
-      playPauseBtn.textContent = 'Play';
+      playPauseBtn.textContent = '▶️';
     }
   });
 
