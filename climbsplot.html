@@ -29,8 +29,128 @@
     .data-table th,.data-table td{padding:8px 12px;text-align:left;border-bottom:1px solid #e2e8f0}
     .data-table th{background:#f8fafc;font-weight:600;position:sticky;top:0;z-index:1}
     .data-table tbody tr:hover{background:#f8fafc}
+    
+    /* Settings Menu Styles */
+    .settings-container {
+      position: relative;
+    }
+    
+    .settings-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #475569;
+      transition: all 0.2s;
+    }
+    
+    .settings-btn:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+    
+    .settings-menu {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      padding: 12px;
+      min-width: 200px;
+      z-index: 1000;
+      display: none;
+    }
+    
+    .settings-menu.show {
+      display: block;
+    }
+    
+    .settings-label {
+      font-size: 13px;
+      color: #374151;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    
+    .settings-select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+      background: white;
+    }
+    
+    .gym-filters {
+      margin-top: 16px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 12px;
+    }
+    
+    .gym-filter-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .gym-filter-item input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+    }
+    
+    .gym-filter-item label {
+      font-size: 13px;
+      color: #374151;
+      cursor: pointer;
+      flex: 1;
+    }
+    
+    .gym-filter-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    
+    .gym-filter-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      border: 1px solid #d1d5db;
+      border-radius: 3px;
+      background: #f9fafb;
+      cursor: pointer;
+      color: #374151;
+    }
+    
+    .gym-filter-btn:hover {
+      background: #f3f4f6;
+    }
+    
+    /* Settings icon using CSS */
+    .settings-icon {
+      width: 14px;
+      height: 14px;
+      position: relative;
+    }
+    
+    .settings-icon::before {
+      content: '⚙';
+      font-size: 14px;
+    }
+    
     @media (max-width:720px){ 
       #chartWrap{height:520px}
+      .settings-menu {
+        right: -20px;
+        left: auto;
+      }
     }
   </style>
 </head>
@@ -49,13 +169,34 @@
     <div id="playbackControls" class="controls card" style="display:none;">
       <button id="playPauseBtn">Play</button>
       <label class="small"><span id="frameDisplay">0/0</span><input id="frameSlider" type="range" min="0" max="0" value="0"/> </label>
-      <select id="aggregationSelect">
-        <option value="average">Average</option>
-        <option value="median">Median</option>
-        <option value="rolling7d">7 Day Moving Avg</option>
-        <option value="rolling1m">1 Month Moving Avg</option>
-        <option value="rolling3m">3 Month Moving Avg</option>
-      </select>
+      
+      <div class="settings-container">
+        <button class="settings-btn" id="settingsBtn">
+          <span class="settings-icon"></span>
+          Settings
+        </button>
+        <div class="settings-menu" id="settingsMenu">
+          <div class="settings-label">Aggregation Method</div>
+          <select id="aggregationSelect" class="settings-select">
+            <option value="average">Average</option>
+            <option value="median">Median</option>
+            <option value="rolling7d" selected>7 Day Moving Avg</option>
+            <option value="rolling1m">1 Month Moving Avg</option>
+            <option value="rolling3m">3 Month Moving Avg</option>
+          </select>
+          
+          <div class="gym-filters">
+            <div class="settings-label">Gym Filter</div>
+            <div id="gymFilterContainer">
+              <!-- Gym checkboxes will be populated here -->
+            </div>
+            <div class="gym-filter-actions">
+              <button class="gym-filter-btn" id="selectAllGyms">Select All</button>
+              <button class="gym-filter-btn" id="deselectAllGyms">Deselect All</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div id="aggregationDataWrap" class="card" style="display:none;margin-bottom:20px;">
@@ -67,6 +208,7 @@
               <th>Date</th>
               <th>Grade</th>
               <th>Color</th>
+              <th>Gym</th>
             </tr>
           </thead>
           <tbody id="dataTableBody">
@@ -95,6 +237,11 @@
   const frameSlider = $('#frameSlider');
   const frameDisplay = $('#frameDisplay');
   const aggregationSelect = $('#aggregationSelect');
+  const settingsBtn = $('#settingsBtn');
+  const settingsMenu = $('#settingsMenu');
+  const gymFilterContainer = $('#gymFilterContainer');
+  const selectAllGymsBtn = $('#selectAllGyms');
+  const deselectAllGymsBtn = $('#deselectAllGyms');
   const canvas = document.getElementById('barChart');
   const chartWrap = $('#chartWrap');
   const playbackControls = $('#playbackControls');
@@ -107,11 +254,147 @@
   let rawRows = [];
   let grades = [];
   let colors = [];
+  let gyms = [];
+  let selectedGyms = new Set();
   let frames = []; // each frame: {datasets: [array per color of values-per-grade], label, date, rawData}
   let chart = null;
   let playTimer = null;
   let currentFrame = 0;
   let isPlaying = false;
+
+  // --- Settings Menu Toggle ---
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsMenu.classList.toggle('show');
+  });
+
+  // Close settings menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!settingsBtn.contains(e.target) && !settingsMenu.contains(e.target)) {
+      settingsMenu.classList.remove('show');
+    }
+  });
+
+  // --- Gym Filter Controls ---
+  selectAllGymsBtn.addEventListener('click', () => {
+    const checkboxes = gymFilterContainer.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+      cb.checked = true;
+      selectedGyms.add(cb.value);
+    });
+    rebuildFramesWithFilter();
+    restartAnimation();
+  });
+
+  deselectAllGymsBtn.addEventListener('click', () => {
+    const checkboxes = gymFilterContainer.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+      cb.checked = false;
+      selectedGyms.delete(cb.value);
+    });
+    rebuildFramesWithFilter();
+    restartAnimation();
+  });
+
+  function createGymFilterCheckboxes() {
+    gymFilterContainer.innerHTML = '';
+    
+    gyms.forEach(gym => {
+      const div = document.createElement('div');
+      div.className = 'gym-filter-item';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `gym-${gym}`;
+      checkbox.value = gym;
+      checkbox.checked = selectedGyms.has(gym);
+      
+      checkbox.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          selectedGyms.add(gym);
+        } else {
+          selectedGyms.delete(gym);
+        }
+        rebuildFramesWithFilter();
+        restartAnimation();
+      });
+      
+      const label = document.createElement('label');
+      label.htmlFor = `gym-${gym}`;
+      label.textContent = gym || 'Unknown';
+      
+      div.appendChild(checkbox);
+      div.appendChild(label);
+      gymFilterContainer.appendChild(div);
+    });
+  }
+
+  function rebuildFramesWithFilter() {
+    if (rawRows.length === 0) return;
+    
+    // Filter rows by selected gyms
+    const filteredRows = rawRows.filter(row => {
+      const gymKey = Object.keys(row).find(k => k.toLowerCase() === 'gym');
+      const gym = gymKey ? normalizeName(row[gymKey]) : 'Unknown';
+      return selectedGyms.has(gym);
+    });
+    
+    if (filteredRows.length === 0) {
+      // If no gyms selected, show empty chart
+      frames = [];
+      if (chart) {
+        chart.data.datasets.forEach(dataset => {
+          dataset.data = Array.from({length: grades.length}, () => 0);
+        });
+        chart.update();
+      }
+      frameSlider.max = 0;
+      frameDisplay.textContent = '0/0';
+      updateDataTable(0);
+      return;
+    }
+    
+    // Rebuild frames with filtered data
+    prepareFramesFromRows(filteredRows);
+    
+    // Update UI
+    frameSlider.max = frames.length - 1;
+    frameDisplay.textContent = `1/${frames.length}`;
+    currentFrame = 0;
+    
+    if (frames.length > 0) {
+      showFrame(0);
+    }
+    
+    // Stop any playing animation
+    if (playTimer) {
+      clearInterval(playTimer);
+      playTimer = null;
+      isPlaying = false;
+      playPauseBtn.textContent = 'Play';
+    }
+  }
+
+  function restartAnimation() {
+    // Reset to beginning
+    currentFrame = 0;
+    frameSlider.value = 0;
+    frameDisplay.textContent = frames.length > 0 ? `1/${frames.length}` : '0/0';
+    
+    // Show first frame if available
+    if (frames.length > 0) {
+      showFrame(0);
+    }
+    
+    // Auto-start animation after a brief delay
+    if (frames.length > 0) {
+      setTimeout(() => {
+        if (!isPlaying) {
+          playPauseBtn.click();
+        }
+      }, 300);
+    }
+  }
 
   // --- Color mapping (common hold colors) ---
   const colorMap = {
@@ -198,9 +481,36 @@
     const hasGrade = headerKeys.includes('grade');
     const hasColor = headerKeys.includes('color');
     const hasDate = headerKeys.includes('date');
+    const hasGym = headerKeys.includes('gym');
 
     if(!hasGrade) throw new Error('CSV header must include a "grade" column.');
 
+    // collect unique gyms first
+    const gymSet = new Set();
+    rows.forEach(r => {
+      const gymKey = Object.keys(r).find(k => k.toLowerCase() === 'gym');
+      const gym = gymKey ? normalizeName(r[gymKey]) : 'Unknown';
+      gymSet.add(gym);
+    });
+    
+    gyms = Array.from(gymSet).sort();
+    
+    // Select only "Bouldering Project" gyms by default
+    selectedGyms = new Set();
+    gyms.forEach(gym => {
+      if (gym.toLowerCase().includes('bouldering project')) {
+        selectedGyms.add(gym);
+      }
+    });
+    
+    // Create gym filter checkboxes
+    createGymFilterCheckboxes();
+    
+    // Process the data
+    prepareFramesFromRows(rows);
+  }
+
+  function prepareFramesFromRows(rows) {
     // normalize rows: ensure fields accessible
     const normalizedRows = rows.map((r, idx) => {
       // find original keys (case-insensitive)
@@ -228,6 +538,7 @@
       return {
         grade: normalizeName(obj['grade']),
         color: normalizeName(obj['color'] ?? 'Unknown'),
+        gym: normalizeName(obj['gym'] ?? 'Unknown'),
         date: date,
         originalIndex: idx
       };
@@ -547,7 +858,7 @@
     if (dataPoints.length === 0) {
       const row = dataTableBody.insertRow();
       const cell = row.insertCell();
-      cell.colSpan = 3;
+      cell.colSpan = 4;
       cell.textContent = 'No data points in current window';
       cell.style.textAlign = 'center';
       cell.style.fontStyle = 'italic';
@@ -571,6 +882,11 @@
       colorCell.textContent = point.color;
       colorCell.style.color = getColorHex(point.color);
       colorCell.style.fontWeight = 'bold';
+      
+      const gymCell = row.insertCell();
+      gymCell.textContent = point.gym || 'Unknown';
+      gymCell.style.fontSize = '12px';
+      gymCell.style.color = '#6b7280';
     });
   }
 
