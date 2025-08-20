@@ -163,6 +163,15 @@
           ⚙️
         </button>
         <div class="settings-menu" id="settingsMenu">
+          <!-- Y-Axis Column Selection -->
+          <div style="margin-bottom: 12px;">
+            <div class="settings-label">Y-Axis &amp; Aggregation</div>
+            <select id="yAxisSelect" class="settings-select">
+              <option value="grade" selected>Grade</option>
+              <option value="attempts">Attempts</option>
+            </select>
+          </div>
+        
           <div class="settings-label">Aggregation Method</div>
           <select id="aggregationSelect" class="settings-select">
             <option value="average">Average</option>
@@ -193,7 +202,7 @@
           <thead>
             <tr>
               <th>Date</th>
-              <th>Grade</th>
+              <th>Grade</th> <!-- This header will be updated dynamically -->
               <th>Color</th>
               <th>Gym</th>
             </tr>
@@ -205,7 +214,7 @@
     </div>
 
     <div id="status" class="card" style="margin-top:12px;padding:10px;">
-      <div id="statusText">Choose a CSV file with `grade` and `color` columns (CSV header names must be `grade` and `color`). Optional `date` column for rolling averages.</div>
+      <div id="statusText">Choose a CSV file with `grade` and `color` columns. Optional `date`, `gym`, and `attempts` columns are supported.</div>
     </div>
   </div>
 
@@ -224,6 +233,7 @@
   const frameSlider = $('#frameSlider');
   const frameDisplay = $('#frameDisplay');
   const aggregationSelect = $('#aggregationSelect');
+  const yAxisSelect = $('#yAxisSelect');
   const settingsBtn = $('#settingsBtn');
   const settingsMenu = $('#settingsMenu');
   const gymFilterContainer = $('#gymFilterContainer');
@@ -237,9 +247,9 @@
   const dataTableBody = $('#dataTableBody');
   const dataTableTitle = $('#dataTableTitle');
 
-  // Internal state
+  // --- Internal state ---
   let rawRows = [];
-  let grades = [];
+  let yAxisValues = []; // Replaces 'grades'. Can be grades, attempts, etc.
   let colors = [];
   let gyms = [];
   let selectedGyms = new Set();
@@ -248,6 +258,7 @@
   let playTimer = null;
   let currentFrame = 0;
   let isPlaying = false;
+  let yAxisColumn = 'grade'; // Default y-axis column
 
   // --- Settings Menu Toggle ---
   settingsBtn.addEventListener('click', (e) => {
@@ -255,7 +266,6 @@
     settingsMenu.classList.toggle('show');
   });
 
-  // Close settings menu when clicking outside
   document.addEventListener('click', (e) => {
     if (!settingsBtn.contains(e.target) && !settingsMenu.contains(e.target)) {
       settingsMenu.classList.remove('show');
@@ -264,8 +274,7 @@
 
   // --- Gym Filter Controls ---
   selectAllGymsBtn.addEventListener('click', () => {
-    const checkboxes = gymFilterContainer.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(cb => {
+    gymFilterContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
       cb.checked = true;
       selectedGyms.add(cb.value);
     });
@@ -274,8 +283,7 @@
   });
 
   deselectAllGymsBtn.addEventListener('click', () => {
-    const checkboxes = gymFilterContainer.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(cb => {
+    gymFilterContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
       cb.checked = false;
       selectedGyms.delete(cb.value);
     });
@@ -285,7 +293,6 @@
 
   function createGymFilterCheckboxes() {
     gymFilterContainer.innerHTML = '';
-    
     gyms.forEach(gym => {
       const div = document.createElement('div');
       div.className = 'gym-filter-item';
@@ -297,11 +304,8 @@
       checkbox.checked = selectedGyms.has(gym);
       
       checkbox.addEventListener('change', (e) => {
-        if (e.target.checked) {
-          selectedGyms.add(gym);
-        } else {
-          selectedGyms.delete(gym);
-        }
+        if (e.target.checked) selectedGyms.add(gym);
+        else selectedGyms.delete(gym);
         rebuildFramesWithFilter();
         restartAnimation();
       });
@@ -319,7 +323,6 @@
   function rebuildFramesWithFilter() {
     if (rawRows.length === 0) return;
     
-    // Filter rows by selected gyms
     const filteredRows = rawRows.filter(row => {
       const gymKey = Object.keys(row).find(k => k.toLowerCase() === 'gym');
       const gym = gymKey ? normalizeName(row[gymKey]) : 'Unknown';
@@ -327,13 +330,10 @@
     });
     
     if (filteredRows.length === 0) {
-      // If no gyms selected, show empty chart
       frames = [];
       if (chart) {
-        chart.data.datasets.forEach(dataset => {
-          dataset.data = Array.from({length: grades.length}, () => 0);
-        });
-        updateAverageGradeLine(0);
+        chart.data.datasets.forEach(dataset => dataset.data = Array(yAxisValues.length).fill(0));
+        updateAverageValueLine(0);
         chart.update();
       }
       frameSlider.max = 0;
@@ -342,19 +342,14 @@
       return;
     }
     
-    // Rebuild frames with filtered data
     prepareFramesFromRows(filteredRows);
     
-    // Update UI
     frameSlider.max = frames.length - 1;
     frameDisplay.textContent = `1/${frames.length}`;
     currentFrame = 0;
     
-    if (frames.length > 0) {
-      showFrame(0);
-    }
+    if (frames.length > 0) showFrame(0);
     
-    // Stop any playing animation
     if (playTimer) {
       clearInterval(playTimer);
       playTimer = null;
@@ -364,27 +359,18 @@
   }
 
   function restartAnimation() {
-    // Reset to beginning
     currentFrame = 0;
     frameSlider.value = 0;
     frameDisplay.textContent = frames.length > 0 ? `1/${frames.length}` : '0/0';
     
-    // Show first frame if available
-    if (frames.length > 0) {
-      showFrame(0);
-    }
+    if (frames.length > 0) showFrame(0);
     
-    // Auto-start animation after a brief delay
     if (frames.length > 0) {
-      setTimeout(() => {
-        if (!isPlaying) {
-          playPauseBtn.click();
-        }
-      }, 300);
+      setTimeout(() => { if (!isPlaying) playPauseBtn.click(); }, 300);
     }
   }
 
-  // --- Color mapping (common hold colors) ---
+  // --- Color mapping ---
   const colorMap = {
     Pink:"#ffc0cb", Black:"#000000", Orange:"#ffa500", Purple:"#800080", White:"#ffffff",
     Blue:"#1f77b4", Red:"#d62728", Yellow:"#ffdd57", Green:"#2ca02c", Gray:"#808080",
@@ -393,31 +379,25 @@
   };
 
   function normalizeName(s){
-    if(s === undefined || s === null) return '';
-    return String(s).trim();
+    return s === undefined || s === null ? '' : String(s).trim();
   }
 
   function getColorHex(name){
     const clean = normalizeName(name);
     if(!clean) return '#cccccc';
-    if(colorMap[clean]) return colorMap[clean];
-    // try case-insensitive matching (e.g., 'pink' -> 'Pink')
     const key = Object.keys(colorMap).find(k => k.toLowerCase() === clean.toLowerCase());
     if(key) return colorMap[key];
-    // fallback: generate consistent HSL color based on name hash
     let hash = 0;
-    for(let i=0;i<clean.length;i++){ hash = clean.charCodeAt(i) + ((hash<<5)-hash); hash = hash & hash; }
-    const hue = ((hash % 360) + 360) % 360;
-    return `hsl(${hue} 60% 55%)`;
+    for(let i=0;i<clean.length;i++){ hash = clean.charCodeAt(i) + ((hash<<5)-hash); hash &= hash; }
+    return `hsl(${(hash % 360 + 360) % 360} 60% 55%)`;
   }
 
-  // parse grade like "v6", "V3", "6", return numeric; unknown -> large number
-  function gradeToNumber(g){
-    if(g === undefined || g === null) return Number.MAX_SAFE_INTEGER;
-    const s = String(g).trim();
+  // Parses values like "v6", "V3", "6", "1", "2" into numbers
+  function valueToNumber(v){
+    if(v === undefined || v === null) return Number.MAX_SAFE_INTEGER;
+    const s = String(v).trim();
     const m = s.match(/(?:v)?\s*([+-]?\d+)/i);
     if(m) return parseInt(m[1],10);
-    // handle things like "5+" or "5-"
     const m2 = s.match(/([0-9]+)/);
     if(m2) return parseInt(m2[1],10);
     return Number.MAX_SAFE_INTEGER;
@@ -436,7 +416,6 @@
           prepareFramesFromCSV(rawRows);
           statusText.textContent = `Loaded ${rawRows.length} rows → ${frames.length} animation frames. Ready.`;
           
-          // Hide file input and show the chart and playback controls
           fileControls.style.display = 'none';
           chartWrap.style.display = 'flex';
           playbackControls.style.display = 'flex';
@@ -445,83 +424,56 @@
           frameSlider.max = frames.length - 1;
           frameDisplay.textContent = `1/${frames.length}`;
           currentFrame = 0;
-          showFrame(0); // Show first frame
+          showFrame(0);
           
-          // Auto-start animation
-          setTimeout(() => {
-            if (!isPlaying) playPauseBtn.click();
-          }, 500);
+          setTimeout(() => { if (!isPlaying) playPauseBtn.click(); }, 500);
         } catch(e){
           statusText.textContent = 'Error processing CSV: ' + e.message;
         }
       },
-      error: (err) => {
-        statusText.textContent = 'CSV parse error: ' + err.message;
-      }
+      error: (err) => { statusText.textContent = 'CSV parse error: ' + err.message; }
     });
   });
 
   function prepareFramesFromCSV(rows){
     if(!rows || !rows.length) throw new Error('CSV is empty.');
 
-    // ensure header includes grade & color (case-insensitive)
     const headerKeys = Object.keys(rows[0]).map(k => k.toLowerCase());
-    const hasGrade = headerKeys.includes('grade');
+    if(!headerKeys.includes('grade')) throw new Error('CSV header must include a "grade" column.');
+    
+    // Disable 'attempts' option if the column doesn't exist
+    const attemptsOption = yAxisSelect.querySelector('option[value="attempts"]');
+    if(!headerKeys.includes('attempts')) {
+        if(attemptsOption) attemptsOption.disabled = true;
+    } else {
+        if(attemptsOption) attemptsOption.disabled = false;
+    }
 
-    if(!hasGrade) throw new Error('CSV header must include a "grade" column.');
-
-    // collect unique gyms first
     const gymSet = new Set();
     rows.forEach(r => {
       const gymKey = Object.keys(r).find(k => k.toLowerCase() === 'gym');
-      const gym = gymKey ? normalizeName(r[gymKey]) : 'Unknown';
-      gymSet.add(gym);
+      gymSet.add(gymKey ? normalizeName(r[gymKey]) : 'Unknown');
     });
-    
     gyms = Array.from(gymSet).sort();
     
-    // Select only "Bouldering Project" gyms by default
-    selectedGyms = new Set();
-    gyms.forEach(gym => {
-      if (gym.toLowerCase().includes('bouldering project')) {
-        selectedGyms.add(gym);
-      }
-    });
+    selectedGyms = new Set(gyms.filter(gym => gym.toLowerCase().includes('bouldering project')));
+    if (selectedGyms.size === 0) selectedGyms = new Set(gyms); // Select all if none match
     
-    // Create gym filter checkboxes
     createGymFilterCheckboxes();
-    
-    // Initial data processing with default filter
     rebuildFramesWithFilter();
   }
 
   function prepareFramesFromRows(rows) {
-    // normalize rows: ensure fields accessible
     const normalizedRows = rows.map((r, idx) => {
-      // find original keys (case-insensitive)
       const obj = {};
-      for(const key of Object.keys(r)){
-        obj[key.toLowerCase()] = r[key];
-      }
+      for(const key of Object.keys(r)) obj[key.toLowerCase()] = r[key];
       
-      // Parse date if available
-      let date = null;
-      if (obj['date']) {
-        date = new Date(obj['date']);
-        if (isNaN(date.getTime())) {
-          const dateStr = obj['date'].toString().trim();
-          date = new Date(dateStr);
-          if (isNaN(date.getTime())) {
-            console.warn(`Invalid date format: ${dateStr}, using row index`);
-            date = new Date(2024, 0, idx + 1);
-          }
-        }
-      } else {
-        date = new Date(2024, 0, idx + 1);
-      }
+      let date = obj['date'] ? new Date(obj['date']) : new Date(2024, 0, idx + 1);
+      if (isNaN(date.getTime())) date = new Date(2024, 0, idx + 1);
       
       return {
         grade: normalizeName(obj['grade']),
+        attempts: normalizeName(obj['attempts']),
         color: normalizeName(obj['color'] ?? 'Unknown'),
         gym: normalizeName(obj['gym'] ?? 'Unknown'),
         date: date,
@@ -529,84 +481,69 @@
       };
     });
 
-    // collect unique grades and colors
-    const gradeSet = new Set();
+    // Filter out rows with blank 'attempts' if that's the selected axis
+    const finalRows = yAxisColumn === 'attempts'
+      ? normalizedRows.filter(r => r.attempts && r.attempts.trim() !== '')
+      : normalizedRows;
+
+    const yAxisValueSet = new Set();
     const colorSet = new Set();
-    normalizedRows.forEach(r => {
-      if(r.grade) gradeSet.add(r.grade);
-      else gradeSet.add('UnknownGrade');
+    finalRows.forEach(r => {
+      const yValue = r[yAxisColumn];
+      if(yValue) yAxisValueSet.add(yValue);
+      else yAxisValueSet.add(`Unknown`);
       colorSet.add(r.color || 'Unknown');
     });
 
-    // sort grades numerically
-    grades = Array.from(gradeSet).sort((a,b) => {
-      const na = gradeToNumber(a), nb = gradeToNumber(b);
-      if(na === nb) return a.localeCompare(b);
-      return na - nb;
-    });
-
+    yAxisValues = Array.from(yAxisValueSet).sort((a,b) => valueToNumber(a) - valueToNumber(b));
     colors = Array.from(colorSet).sort((a,b) => {
       const priority = ['white', 'pink', 'blue', 'black', 'orange', 'purple', 'green', 'red', 'yellow'];
       const aIndex = priority.findIndex(p => p.toLowerCase() === a.toLowerCase());
       const bIndex = priority.findIndex(p => p.toLowerCase() === b.toLowerCase());
-      
       if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
       if (aIndex !== -1) return -1;
       if (bIndex !== -1) return 1;
       return a.localeCompare(b);
     });
 
-    // initialize counts
     const counts = {};
-    grades.forEach(g => {
+    yAxisValues.forEach(g => {
       counts[g] = {};
       colors.forEach(c => counts[g][c] = 0);
     });
 
-    // build frames cumulatively
     frames = [];
-    let cumulativeData = []; // Keep track of all data up to this point
+    let cumulativeData = [];
     
-    normalizedRows.forEach((r, idx) => {
-      const g = r.grade || 'UnknownGrade';
+    finalRows.forEach((r, idx) => {
+      const yValue = r[yAxisColumn] || 'Unknown';
       const c = r.color || 'Unknown';
 
-      // Add this climb to cumulative data
       cumulativeData.push({
-        grade: g,
-        color: c,
-        date: r.date,
-        gradeNumber: gradeToNumber(g),
-        gym: r.gym
+        ...r,
+        valueNumber: valueToNumber(r[yAxisColumn])
       });
 
-      // increment counts
-      if(!(g in counts)){
-        grades.push(g);
-        counts[g] = {};
-        colors.forEach(cc => counts[g][cc] = 0);
+      if(!(yValue in counts)) {
+          yAxisValues.push(yValue);
+          counts[yValue] = {};
+          colors.forEach(cc => counts[yValue][cc] = 0);
       }
-      if(!(c in counts[g])){
-        colors.push(c);
-        for(const gg of grades) counts[gg][c] = counts[gg][c] || 0;
-      }
-      counts[g][c] = (counts[g][c] || 0) + 1;
+      counts[yValue][c] = (counts[yValue][c] || 0) + 1;
 
-      // build dataset arrays
-      const datasetsPerColor = colors.map(colorName => grades.map(gradeName => counts[gradeName][colorName] || 0));
+      const datasetsPerColor = colors.map(colorName => yAxisValues.map(yAxisVal => counts[yAxisVal][colorName] || 0));
       frames.push({ 
         datasets: datasetsPerColor, 
         label: `Row ${idx+1}`,
         date: r.date,
         originalIndex: r.originalIndex,
-        cumulativeData: [...cumulativeData] // Copy of all data up to this point
+        cumulativeData: [...cumulativeData]
       });
     });
 
     createChart();
   }
 
-  // --- Chart creation & rendering ---
   function createChart(){
     if(chart) chart.destroy();
     const ctx = canvas.getContext('2d');
@@ -614,7 +551,7 @@
     const maxCount = calculateMaxCount();
     const datasets = colors.map(c => ({
       label: c,
-      data: Array.from({length:grades.length}, () => 0),
+      data: Array(yAxisValues.length).fill(0),
       backgroundColor: getColorHex(c),
       borderColor: '#222',
       borderWidth: 0.6,
@@ -624,7 +561,7 @@
     chart = new Chart(ctx, {
       type: 'bar',
       data: {
-        labels: grades,
+        labels: yAxisValues,
         datasets: datasets
       },
       options: {
@@ -634,9 +571,7 @@
         plugins: {
           legend: { display: false },
           tooltip: { enabled: true },
-          annotation: {
-            annotations: {}
-          }
+          annotation: { annotations: {} }
         },
         scales: {
           x: { 
@@ -645,7 +580,13 @@
             max: maxCount,
             title: { display: true, text: 'Count' } 
           },
-          y: { stacked: true, title: { display: true, text: 'Grade' } }
+          y: { 
+            stacked: true, 
+            title: { 
+              display: true, 
+              text: yAxisColumn.charAt(0).toUpperCase() + yAxisColumn.slice(1) 
+            } 
+          }
         },
         animation: { duration: 300, easing: 'linear' }
       }
@@ -656,9 +597,9 @@
     if (!frames.length) return 100;
     let maxCount = 0;
     frames.forEach(frame => {
-      grades.forEach((grade, gradeIdx) => {
-        const gradeTotal = frame.datasets.reduce((sum, colorData) => sum + (colorData[gradeIdx] || 0), 0);
-        maxCount = Math.max(maxCount, gradeTotal);
+      yAxisValues.forEach((val, idx) => {
+        const total = frame.datasets.reduce((sum, colorData) => sum + (colorData[idx] || 0), 0);
+        maxCount = Math.max(maxCount, total);
       });
     });
     return Math.ceil(maxCount * 1.1);
@@ -668,42 +609,35 @@
     if(!chart || !frames.length) return;
     const frame = frames[i];
     
-    frame.datasets.forEach((valsPerGrade, datasetIdx) => {
-      if(chart.data.datasets[datasetIdx]) {
-        chart.data.datasets[datasetIdx].data = valsPerGrade.slice();
-      }
+    frame.datasets.forEach((vals, datasetIdx) => {
+      if(chart.data.datasets[datasetIdx]) chart.data.datasets[datasetIdx].data = vals.slice();
     });
     
-    chart.data.labels = grades.slice();
-    updateAverageGradeLine(i);
+    chart.data.labels = yAxisValues.slice();
+    updateAverageValueLine(i);
     chart.update();
     updateDataTable(i);
   }
 
-  function updateAverageGradeLine(frameIndex) {
+  function updateAverageValueLine(frameIndex) {
     if (!chart || !frames.length) {
-        if(chart) {
-            chart.options.plugins.annotation.annotations = {};
-        }
+        if(chart) chart.options.plugins.annotation.annotations = {};
         return;
     };
     
-    const aggregationType = aggregationSelect.value;
-    let result = calculateAggregation(frameIndex, aggregationType);
+    const result = calculateAggregation(frameIndex, aggregationSelect.value);
     
     if (!result) {
         chart.options.plugins.annotation.annotations = {};
         return;
     };
     
-    // Find the closest grade index for positioning
     let closestIndex = 0;
-    let closestDiff = Math.abs(gradeToNumber(grades[0]) - result.value);
-    
-    grades.forEach((grade, idx) => {
-      const gradeNum = gradeToNumber(grade);
-      if (gradeNum !== Number.MAX_SAFE_INTEGER) {
-        const diff = Math.abs(gradeNum - result.value);
+    let closestDiff = Infinity;
+    yAxisValues.forEach((val, idx) => {
+      const num = valueToNumber(val);
+      if (num !== Number.MAX_SAFE_INTEGER) {
+        const diff = Math.abs(num - result.value);
         if (diff < closestDiff) {
           closestDiff = diff;
           closestIndex = idx;
@@ -713,24 +647,13 @@
     
     chart.options.plugins.annotation.annotations = {
       averageLine: {
-        type: 'line',
-        yMin: closestIndex,
-        yMax: closestIndex,
-        borderColor: '#ff4444',
-        borderWidth: 3,
-        borderDash: [5, 5],
+        type: 'line', yMin: closestIndex, yMax: closestIndex,
+        borderColor: '#ff4444', borderWidth: 3, borderDash: [5, 5],
         label: {
-          display: true,
-          content: result.display,
-          position: 'end',
-          backgroundColor: '#ff4444',
-          color: 'white',
-          font: {
-            size: 12,
-            weight: 'bold'
-          },
-          padding: 6,
-          borderRadius: 4
+          display: true, content: result.display, position: 'end',
+          backgroundColor: '#ff4444', color: 'white',
+          font: { size: 12, weight: 'bold' },
+          padding: 6, borderRadius: 4
         }
       }
     };
@@ -740,31 +663,28 @@
     const dataPoints = getAggregationDataPoints(frameIndex, type);
     if (!dataPoints || dataPoints.length === 0) return null;
     
-    const gradeValues = dataPoints.map(p => p.gradeNumber).filter(v => v !== Number.MAX_SAFE_INTEGER);
-    if (gradeValues.length === 0) return null;
+    const values = dataPoints.map(p => p.valueNumber).filter(v => v !== Number.MAX_SAFE_INTEGER);
+    if (values.length === 0) return null;
     
+    const prefix = yAxisColumn === 'grade' ? 'V' : '';
+
     switch (type) {
       case 'average':
-        const avg = gradeValues.reduce((sum, val) => sum + val, 0) / gradeValues.length;
-        return { value: avg, display: `Avg: V${avg.toFixed(1)}` };
+        const avg = values.reduce((s, v) => s + v, 0) / values.length;
+        return { value: avg, display: `Avg: ${prefix}${avg.toFixed(1)}` };
         
       case 'median':
-        gradeValues.sort((a, b) => a - b);
-        const mid = Math.floor(gradeValues.length / 2);
-        const median = gradeValues.length % 2 === 0 
-          ? (gradeValues[mid - 1] + gradeValues[mid]) / 2
-          : gradeValues[mid];
-        return { value: median, display: `Median: V${median.toFixed(1)}` };
+        values.sort((a, b) => a - b);
+        const mid = Math.floor(values.length / 2);
+        const median = values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
+        return { value: median, display: `Median: ${prefix}${median.toFixed(1)}` };
         
-      case 'rolling7d':
-      case 'rolling1m':
-      case 'rolling3m':
-        const avg2 = gradeValues.reduce((sum, val) => sum + val, 0) / gradeValues.length;
+      case 'rolling7d': case 'rolling1m': case 'rolling3m':
+        const rAvg = values.reduce((s, v) => s + v, 0) / values.length;
         const period = type === 'rolling7d' ? '7d' : type === 'rolling1m' ? '1M' : '3M';
-        return { value: avg2, display: `${period} Avg: V${avg2.toFixed(1)}` };
+        return { value: rAvg, display: `${period} Avg: ${prefix}${rAvg.toFixed(1)}` };
         
-      default:
-        return null;
+      default: return null;
     }
   }
 
@@ -773,21 +693,12 @@
     if (!frame) return [];
     
     switch (type) {
-      case 'average':
-      case 'median':
+      case 'average': case 'median':
         return frame.cumulativeData;
-        
-      case 'rolling7d':
-        return getRollingDataPoints(frameIndex, 7, 'days');
-        
-      case 'rolling1m':
-        return getRollingDataPoints(frameIndex, 1, 'months');
-        
-      case 'rolling3m':
-        return getRollingDataPoints(frameIndex, 3, 'months');
-        
-      default:
-        return [];
+      case 'rolling7d': return getRollingDataPoints(frameIndex, 7, 'days');
+      case 'rolling1m': return getRollingDataPoints(frameIndex, 1, 'months');
+      case 'rolling3m': return getRollingDataPoints(frameIndex, 3, 'months');
+      default: return [];
     }
   }
 
@@ -798,67 +709,47 @@
     const currentDate = frame.date;
     const startDate = new Date(currentDate);
 
-    if (unit === 'days') {
-      startDate.setDate(startDate.getDate() - period);
-    } else if (unit === 'months') {
-      startDate.setMonth(startDate.getMonth() - period);
-    }
+    if (unit === 'days') startDate.setDate(startDate.getDate() - period);
+    else if (unit === 'months') startDate.setMonth(startDate.getMonth() - period);
 
-    return frame.cumulativeData.filter(climb => {
-      const climbDate = new Date(climb.date);
-      return climbDate >= startDate && climbDate <= currentDate;
-    });
+    return frame.cumulativeData.filter(climb => new Date(climb.date) >= startDate && new Date(climb.date) <= currentDate);
   }
 
   function updateDataTable(frameIndex) {
     const aggregationType = aggregationSelect.value;
     const dataPoints = getAggregationDataPoints(frameIndex, aggregationType);
     
-    // Update title
     const typeLabels = {
-      'average': 'Average (All Climbs)',
-      'median': 'Median (All Climbs)', 
-      'rolling7d': '7-Day Rolling Average',
-      'rolling1m': '1-Month Rolling Average',
-      'rolling3m': '3-Month Rolling Average'
+      'average': 'Average (All Climbs)', 'median': 'Median (All Climbs)', 
+      'rolling7d': '7-Day Rolling Average', 'rolling1m': '1-Month Rolling Average', 'rolling3m': '3-Month Rolling Average'
     };
     dataTableTitle.textContent = `${typeLabels[aggregationType]} - Data Points (${dataPoints ? dataPoints.length : 0} climbs)`;
     
-    // Clear and populate table
-    dataTableBody.innerHTML = '';
+    const headerCell = dataTableBody.parentElement.querySelector('thead tr th:nth-child(2)');
+    if (headerCell) headerCell.textContent = yAxisColumn.charAt(0).toUpperCase() + yAxisColumn.slice(1);
     
+    dataTableBody.innerHTML = '';
     if (!dataPoints || dataPoints.length === 0) {
       const row = dataTableBody.insertRow();
       const cell = row.insertCell();
       cell.colSpan = 4;
       cell.textContent = 'No data points in current window';
-      cell.style.textAlign = 'center';
-      cell.style.fontStyle = 'italic';
-      cell.style.color = '#666';
+      cell.style.cssText = 'text-align:center; font-style:italic; color:#666;';
       return;
     }
     
-    // Sort by date (most recent first)
     dataPoints.sort((a, b) => b.date - a.date);
     
     dataPoints.forEach(point => {
       const row = dataTableBody.insertRow();
-      
-      const dateCell = row.insertCell();
-      dateCell.textContent = point.date.toLocaleDateString();
-      
-      const gradeCell = row.insertCell();
-      gradeCell.textContent = point.grade;
-      
+      row.insertCell().textContent = point.date.toLocaleDateString();
+      row.insertCell().textContent = point[yAxisColumn];
       const colorCell = row.insertCell();
       colorCell.textContent = point.color;
-      colorCell.style.color = getColorHex(point.color);
-      colorCell.style.fontWeight = 'bold';
-      
+      colorCell.style.cssText = `color:${getColorHex(point.color)}; font-weight:bold;`;
       const gymCell = row.insertCell();
       gymCell.textContent = point.gym || 'Unknown';
-      gymCell.style.fontSize = '12px';
-      gymCell.style.color = '#6b7280';
+      gymCell.style.cssText = 'font-size:12px; color:#6b7280;';
     });
   }
 
@@ -867,17 +758,15 @@
     if(!frames.length) return;
     
     if (isPlaying) {
-      if(playTimer) { clearInterval(playTimer); playTimer = null; }
+      if(playTimer) clearInterval(playTimer);
+      playTimer = null;
       isPlaying = false;
       playPauseBtn.textContent = '▶️';
     } else {
-      // If animation is at the end, restart it
-      if (currentFrame >= frames.length - 1) {
-        currentFrame = 0;
-      }
+      if (currentFrame >= frames.length - 1) currentFrame = 0;
       isPlaying = true;
       playPauseBtn.textContent = '⏸️';
-      const speed = 15000/frames.length;
+      const speed = Math.max(20, 15000 / frames.length);
       if(playTimer) clearInterval(playTimer);
       playTimer = setInterval(() => {
         showFrame(currentFrame);
@@ -896,22 +785,25 @@
     }
   });
 
-  // --- Aggregation Selection ---
+  // --- Event Listeners for Settings ---
   aggregationSelect.addEventListener('change', () => {
     if (chart && frames.length > 0) {
-      updateAverageGradeLine(currentFrame);
+      updateAverageValueLine(currentFrame);
       chart.update();
       updateDataTable(currentFrame);
     }
   });
 
-  // --- Frame Slider Control ---
+  yAxisSelect.addEventListener('change', () => {
+    yAxisColumn = yAxisSelect.value;
+    rebuildFramesWithFilter();
+    restartAnimation();
+  });
+
   frameSlider.addEventListener('input', () => {
-    const frameIndex = parseInt(frameSlider.value);
-    currentFrame = frameIndex;
-    showFrame(frameIndex);
-    frameDisplay.textContent = `${frameIndex + 1}/${frames.length}`;
-    
+    currentFrame = parseInt(frameSlider.value);
+    showFrame(currentFrame);
+    frameDisplay.textContent = `${currentFrame + 1}/${frames.length}`;
     if(playTimer) {
       clearInterval(playTimer);
       playTimer = null;
@@ -920,7 +812,7 @@
     }
   });
 
-  // Drag & drop support
+  // --- Drag & drop support ---
   window.addEventListener('dragover', e => e.preventDefault());
   window.addEventListener('drop', e => {
     e.preventDefault();
