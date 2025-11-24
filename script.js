@@ -1,25 +1,16 @@
 import * as THREE from 'https://jspm.dev/three@0.132.2';
-import { OrbitControls } from 'https://jspm.dev/three@0.132.2/examples/jsm/controls/OrbitControls';
 import { STLLoader } from 'https://jspm.dev/three@0.132.2/examples/jsm/loaders/STLLoader';
-import * as CANNON from 'https://jspm.dev/cannon-es@0.20.0';
 
 const owner = 'abphung';
 const repo = 'OpenSCADProjects';
 const path = '';
 
-const MAX_VELOCITY = 1000; // Maximum velocity magnitude
 const colorPalette = [
-    '#3498db', // Blue
-    '#2ecc71', // Green
-    '#e74c3c', // Red
-    '#f39c12', // Orange
-    '#9b59b6', // Purple
-    '#1abc9c', // Teal
-    '#34495e', // Dark Blue
-    '#95a5a6'  // Gray
+    '#3498db', '#2ecc71', '#e74c3c', '#f39c12',
+    '#9b59b6', '#1abc9c', '#34495e', '#95a5a6'
 ];
 
-let scene, camera, renderer, controls, world;
+let scene, camera, renderer;
 const loader = new STLLoader();
 const loadedModels = [];
 let boundingSpheres = [];
@@ -27,23 +18,11 @@ let totalModelsToLoad = 0;
 let loadedModelCount = 0;
 let sphereWireframes = [];
 
-// Define the new area size
-const areaSize = 500; // Half of the previous 100
+const MODEL_SIZE = 50;
+let gridSize = 0;
 
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
-let isDragging = false;
-let draggedModel = null;
-
-let dragPlane;
-let dragPoint = new THREE.Vector3();
-
-let lastModelPosition = new THREE.Vector3();
-let currentModelPosition = new THREE.Vector3();
-let modelVelocity = new THREE.Vector3();
-let lastUpdateTime = 0;
-
-let draggedModelRadius = 0;
 
 let hoverTooltip;
 const picker = new THREE.Raycaster();
@@ -51,39 +30,26 @@ let isHoverUpdatePending = false;
 let lastHoverUpdateTime = 0;
 const HOVER_UPDATE_INTERVAL = 400;
 
-//used to zoom in/out
 let previousCameraState = {
-    position: new THREE.Vector3(),
-    target: new THREE.Vector3()
+    position: new THREE.Vector3()
 };
 let isZoomedIn = false;
 let zoomedModel = null;
 
-const projScreenMatrix = new THREE.Matrix4();
-
 let fadeOutObjects = [];
 let fadeInObjects = [];
-const fadeDuration = 1000; // Duration of fade effect in milliseconds
-
-let worldObjects = [];
-
-let lastTap = 0;
-let debugOverlay;
-let lastTouchTimestamp = 0;
-let touchCount = 0;
+const fadeDuration = 1000;
 
 let modelLoadQueue = [];
 let isLoadingModel = false;
 
-//used to detirmine if the camera is moving
-let isCameraMoving = false;
-let lastCameraPosition = new THREE.Vector3();
-let lastCameraQuaternion = new THREE.Quaternion();
+let scrollOffset = 0;
+let totalGridHeight = 0;
 
 let isBlogPostVisible = false;
 
 let blogPostOverlay, toggleButton;
-let isNarrowScreen = window.innerWidth < 1200//768;
+let isNarrowScreen = window.innerWidth < 1200;
 let blogPostOverlayStyleWidth = isNarrowScreen ? `${window.innerWidth}px` : `${window.innerWidth * 0.3}px`;
 let blogPostOverlayStyleHeight = isNarrowScreen ? `${window.innerHeight * 0.75}px` : `${window.innerHeight}px`;
 
@@ -104,10 +70,8 @@ function createBlogPostOverlay(duration) {
         blogPostOverlay.style.borderBottomLeftRadius = `${window.innerHeight * 0.05}px`;
     }
 
-    console.log(`${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`);
     blogPostOverlay.style.transition = `${isNarrowScreen ? 'bottom' : 'right'} ${duration}ms ease-in-out`;
 
-    // Create content container
     const contentContainer = document.createElement('div');
     contentContainer.style.height = '100%';
     contentContainer.style.width = '100%';
@@ -115,7 +79,6 @@ function createBlogPostOverlay(duration) {
     contentContainer.style.padding = '20px';
     blogPostOverlay.appendChild(contentContainer);
 
-    // Create resize handle with orientation based on screen size
     const resizeHandle = document.createElement('div');
     resizeHandle.style.position = 'absolute';
     if (isNarrowScreen) {
@@ -134,7 +97,6 @@ function createBlogPostOverlay(duration) {
     resizeHandle.style.zIndex = '1';
     blogPostOverlay.appendChild(resizeHandle);
 
-    // Create toggle button
     toggleButton = document.createElement('button');
     toggleButton.textContent = 'Toggle Blog Post';
     toggleButton.style.position = 'fixed';
@@ -201,21 +163,18 @@ function createBlogPostOverlay(duration) {
         document.removeEventListener('mousemove', resize);
         document.removeEventListener('mouseup', stopResize);
         const startPosition = camera.position.clone();
-        const startLookAt = controls.target.clone();
-        animateCamera(startPosition, startLookAt, 2000, () => {});
+        animateCamera(startPosition, new THREE.Vector3(0, 0, 0), 2000, () => {});
     }
 
-    // Function to update content
     blogPostOverlay.updateContent = function(html) {
         contentContainer.innerHTML = html;
     };
 
-    // Add window resize listener to update layout
     window.addEventListener('resize', () => {
         const newIsNarrowScreen = window.innerWidth < 768;
         if (newIsNarrowScreen !== isNarrowScreen) {
             isNarrowScreen = newIsNarrowScreen;
-            location.reload(); // Refresh to apply new layout
+            location.reload();
         }
     });
 
@@ -232,8 +191,7 @@ function toggleBlogPost(duration) {
     }
 
     const startPosition = camera.position.clone();
-    const startLookAt = controls.target.clone();
-    animateCamera(startPosition, startLookAt, 2000, () => {});
+    animateCamera(startPosition, new THREE.Vector3(0, 0, 0), 2000, () => {});
 }
 
 function showBlogPost(model, duration) {
@@ -290,36 +248,12 @@ function generateBlogPost(model) {
             <h2>${escapeHtml(model.name)}</h2>
             <p>This is a blog post about ${escapeHtml(model.name)}. 
             It's a fascinating 3D model with many interesting features...</p>
-            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. 
-            Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua...</p>
         `;
     }
 }
 
 function getRandomColor() {
     return colorPalette[Math.floor(Math.random() * colorPalette.length)];
-}
-
-function createDebugOverlay() {
-    debugOverlay = document.createElement('div');
-    debugOverlay.style.position = 'fixed';
-    debugOverlay.style.top = '10px';
-    debugOverlay.style.left = '10px';
-    debugOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-    debugOverlay.style.color = 'white';
-    debugOverlay.style.padding = '10px';
-    debugOverlay.style.borderRadius = '5px';
-    debugOverlay.style.fontFamily = 'monospace';
-    debugOverlay.style.fontSize = '12px';
-    debugOverlay.style.zIndex = '1000';
-    document.body.appendChild(debugOverlay);
-}
-
-function updateDebugOverlay(message) {
-    console.log(message);
-    if (debugOverlay) {
-        debugOverlay.innerHTML = message;
-    }
 }
 
 async function fetchAllFiles(owner, repo, path = '') {
@@ -388,7 +322,7 @@ async function fetchAllFiles(owner, repo, path = '') {
             const userToken = await promptForPAT();
             if (userToken) {
                 localStorage.setItem('github_pat', userToken);
-                return fetchAllFiles(owner, repo, path); // Retry with the new token
+                return fetchAllFiles(owner, repo, path);
             } else {
                 throw new Error('GitHub API rate limit reached. Unable to fetch files without a valid token.');
             }
@@ -424,20 +358,28 @@ function promptForPAT() {
 
 function initScene(container) {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color('#f0f4f8'); // Light blue-gray background
+    scene.background = new THREE.Color('#f0f4f8');
     
-    camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 5*areaSize);
-    camera.position.set(1.5*areaSize, 1.5*areaSize, 1.5*areaSize);
-    camera.lookAt(0, 0, 0);
+    // Use orthographic camera for 2D-like view
+    const aspect = container.clientWidth / container.clientHeight;
+    const viewportWidth = container.clientWidth;
+    const viewportHeight = container.clientHeight;
+    
+    camera = new THREE.OrthographicCamera(
+        viewportWidth / -2,
+        viewportWidth / 2,
+        viewportHeight / 2,
+        viewportHeight / -2,
+        1,
+        2000
+    );
+    
+    camera.position.set(0, viewportHeight / 2, 500);
+    camera.lookAt(0, viewportHeight / 2, 0);
     
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(renderer.domElement);
-
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.25;
-    controls.enableZoom = true;
 
     const ambientLight = new THREE.AmbientLight(0x404040);
     scene.add(ambientLight);
@@ -445,260 +387,68 @@ function initScene(container) {
     directionalLight.position.set(1, 1, 1);
     scene.add(directionalLight);
 
-    world = new CANNON.World({
-        gravity: new CANNON.Vec3(0, -600, 0)
-    });
-    world.defaultContactMaterial.friction = 0.5;
-    world.defaultContactMaterial.restitution = 0.3;
-
-    // Define a common material for floor and walls
-    const transparentMaterial = new THREE.MeshBasicMaterial({
-        color: 0x4a5568, // A soft blue-gray color
-        transparent: true,
-        opacity: 0.05,
-        side: THREE.DoubleSide
-    });
-
-    // Create floor
-    const planeGeometry = new THREE.PlaneGeometry(areaSize * 2, areaSize * 2);
-    const planeMesh = new THREE.Mesh(planeGeometry, transparentMaterial);
-    planeMesh.rotation.x = Math.PI / 2;
-    planeMesh.position.y = 0;
-    scene.add(planeMesh);
-    worldObjects.push(planeMesh);
-
-    const planeShape = new CANNON.Plane();
-    const planeBody = new CANNON.Body({ mass: 0 });
-    planeBody.addShape(planeShape);
-    planeBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-    world.addBody(planeBody);
-
-    // Create borders (walls)
-    const borderHeight = 2 * areaSize;
-    const borderThickness = areaSize / 100;
-    const borderGeometry = new THREE.BoxGeometry(areaSize * 2, borderHeight, borderThickness);
-
-    const createBorder = (x, z, rotationY) => {
-        const borderMesh = new THREE.Mesh(borderGeometry, transparentMaterial);
-        borderMesh.position.set(x, borderHeight / 2, z);
-        borderMesh.rotation.y = rotationY;
-        scene.add(borderMesh);
-        worldObjects.push(borderMesh);
-
-        const borderShape = new CANNON.Box(new CANNON.Vec3(areaSize, borderHeight / 2, borderThickness / 2));
-        const borderBody = new CANNON.Body({ mass: 0 });
-        borderBody.addShape(borderShape);
-        borderBody.position.set(x, borderHeight / 2, z);
-        borderBody.quaternion.setFromEuler(0, rotationY, 0);
-        world.addBody(borderBody);
-    };
-
-    // Create four borders
-    createBorder(0, areaSize, 0);
-    createBorder(0, -areaSize, 0);
-    createBorder(areaSize, 0, Math.PI / 2);
-    createBorder(-areaSize, 0, Math.PI / 2);
-
-    // Create a drag plane
-    dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-
-    console.log('Scene and physics world initialized');
+    console.log('Scene initialized');
     animate();
 }
 
-function onTouchStart(event) {
-    if (event.touches.length === 1) {
-        const touch = event.touches[0];
-        const currentTime = new Date().getTime();
-        
-        touchCount++;
-        if (currentTime - lastTouchTimestamp < 500) {
-            onDoubleTap(touch);
-        }
-        lastTouchTimestamp = currentTime;
-
-        //handleStart(touch);
-        updateDebugOverlay(`Touch Start<br>X: ${touch.clientX}<br>Y: ${touch.clientY}<br>Count: ${touchCount}`);
-    }
+function positionCamera() {
+    const spacing = MODEL_SIZE * 1.5;
+    const rows = Math.ceil(totalModelsToLoad / gridSize);
+    totalGridHeight = rows * spacing;
+    
+    const container = document.getElementById('stl-viewer');
+    const viewportHeight = container.clientHeight;
+    
+    // Position camera to show top of grid - start at top of viewport
+    camera.position.set(0, viewportHeight / 2, 500);
+    camera.lookAt(0, viewportHeight / 2, 0);
 }
 
-function onTouchMove(event) {
-    if (event.touches.length === 1) {
-        const touch = event.touches[0];
-        handleMove(touch);
-        updateDebugOverlay(`Touch Move<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
-    }
+function updateCameraScroll() {
+    const container = document.getElementById('stl-viewer');
+    const viewportHeight = container.clientHeight;
+    
+    // Move camera down based on scroll offset, starting from top
+    camera.position.y = (viewportHeight / 2) - scrollOffset;
+    camera.lookAt(0, (viewportHeight / 2) - scrollOffset, 0);
 }
 
-function onTouchEnd(event) {
-    const touch = event.changedTouches[0];
-    handleEnd(touch);
-    updateDebugOverlay(`Touch End<br>X: ${touch.clientX}<br>Y: ${touch.clientY}`);
-}
-
-function onDoubleTap(event) {
-    updateDebugOverlay('Double Tap Detected');
-    handleDoubleClick(event);
-}
-
-function handleStart(event) {
-    try {
-        if (isZoomedIn) return;
-
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-
-        let closestIntersection = null;
-        let closestDistance = Infinity;
-        let intersectedSphere = null;
-
-        boundingSpheres.forEach(({ sphere, model }) => {
-            const intersection = new THREE.Vector3();
-            if (raycaster.ray.intersectSphere(sphere, intersection)) {
-                const distance = raycaster.ray.origin.distanceTo(intersection);
-                if (distance < closestDistance) {
-                    closestDistance = distance;
-                    closestIntersection = intersection;
-                    intersectedSphere = { sphere, model };
-                }
-            }
-        });
-
-        if (intersectedSphere && closestIntersection) {
-            isDragging = true;
-            draggedModel = intersectedSphere.model;
-
-            controls.enabled = false;
-
-            if (draggedModel && draggedModel.userData) {
-                if (draggedModel.userData.physicsBody) {
-                    const physicsBody = draggedModel.userData.physicsBody;
-                    physicsBody.velocity.set(0, 0, 0);
-                    physicsBody.angularVelocity.set(0, 0, 0);
-                    physicsBody.mass = 0;
-
-                    // Store the radius of the dragged model's bounding sphere
-                    draggedModelRadius = physicsBody.shapes[0].radius;
-
-                    dragPlane.setFromNormalAndCoplanarPoint(
-                        camera.getWorldDirection(dragPlane.normal),
-                        closestIntersection
-                    );
-
-                    // Set dragPoint to be the vector from the model's center to the intersection point
-                    dragPoint.copy(closestIntersection).sub(draggedModel.position);
-
-                    // Initialize model positions and time
-                    lastModelPosition.copy(draggedModel.position);
-                    currentModelPosition.copy(draggedModel.position);
-                    lastUpdateTime = performance.now();
-                } else {
-                    console.error('physicsBody not found in draggedModel.userData', draggedModel);
-                }
-            } else {
-                console.error('Invalid draggedModel or userData in handleStart', draggedModel);
-            }
-        }
-    } catch (error) {
-        updateDebugOverlay(`Error in handleStart: ${error}`);
-        throw error;
-    }
+function handleScroll(event) {
+    event.preventDefault();
+    
+    const container = document.getElementById('stl-viewer');
+    const viewportHeight = container.clientHeight;
+    const spacing = MODEL_SIZE * 1.5;
+    const rows = Math.ceil(totalModelsToLoad / gridSize);
+    const contentHeight = rows * spacing;
+    
+    // Calculate max scroll (content height - viewport height)
+    const maxScroll = Math.max(0, contentHeight - viewportHeight);
+    
+    // Update scroll offset
+    scrollOffset += event.deltaY * 0.5;
+    scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
+    
+    updateCameraScroll();
 }
 
 function handleMove(event) {
     try {
-        if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-            raycaster.setFromCamera(mouse, camera);
+        hoverTooltip.style.left = (event.clientX + 10) + 'px';
+        hoverTooltip.style.top = (event.clientY + 10) + 'px';
 
-            const intersectionPoint = new THREE.Vector3();
-            raycaster.ray.intersectPlane(dragPlane, intersectionPoint);
-
-            // Calculate new position by subtracting dragPoint from intersection
-            const newPosition = intersectionPoint.sub(dragPoint);
-
-            // Ensure the model stays above the floor
-            newPosition.y = Math.max(newPosition.y, draggedModelRadius);
-
-            const physicsBody = draggedModel.userData.physicsBody;
-            physicsBody.position.copy(newPosition);
-            physicsBody.velocity.set(0, 0, 0);
-
-            // Update model positions and calculate velocity
-            const currentTime = performance.now();
-            const deltaTime = (currentTime - lastUpdateTime) / 1000; // Convert to seconds
-            
-            lastModelPosition.copy(currentModelPosition);
-            currentModelPosition.copy(newPosition);
-            
-            modelVelocity.subVectors(currentModelPosition, lastModelPosition).divideScalar(deltaTime);
-
-            lastUpdateTime = currentTime;
-        }
-        else {
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-            // Update tooltip position immediately
-            hoverTooltip.style.left = (event.clientX + 10) + 'px';
-            hoverTooltip.style.top = (event.clientY + 10) + 'px';
-
-            isHoverUpdatePending = true;
-        }
+        isHoverUpdatePending = true;
     } catch (error) {
-        updateDebugOverlay(`Error in handleMove: ${error}`);
-        throw error;
-    }
-}
-
-function handleEnd(event) {
-    try{
-        if (isDragging && !isZoomedIn && draggedModel && draggedModel.userData && draggedModel.userData.physicsBody) {
-            isDragging = false;
-            const physicsBody = draggedModel.userData.physicsBody;
-            
-            // Apply momentum based on model velocity, but limit it
-            const velocityMultiplier = 1; // Adjust this value to control the momentum
-            let newVelocity = modelVelocity.multiplyScalar(velocityMultiplier);
-            
-            // Limit the velocity magnitude
-            if (newVelocity.length() > MAX_VELOCITY) {
-                newVelocity.normalize().multiplyScalar(MAX_VELOCITY);
-            }
-            
-            physicsBody.velocity.copy(newVelocity);
-            physicsBody.mass = 1;
-
-            modelVelocity = new THREE.Vector3();
-
-            draggedModel = null;
-            draggedModelRadius = 0;
-        }
-
-        isDragging = false;
-        draggedModel = null;
-        
-        // Re-enable controls after a short delay
-        setTimeout(() => {
-            controls.enabled = true;
-            controls.saveState();
-            controls.reset();
-        }, 100);
-    } catch (error) {
-        updateDebugOverlay(`${error}`);
-        throw error;
+        console.error(`Error in handleMove: ${error}`);
     }
 }
 
 function updateHover() {
-    if (isZoomedIn || isCameraMoving) {
+    if (isZoomedIn) {
         hoverTooltip.style.display = 'none';
         return;
     }
@@ -743,92 +493,52 @@ function handleDoubleClick(event) {
 
             if (intersectedSphere) {
                 const intersectedObject = intersectedSphere.model;
-                updateDebugOverlay(`Double Click<br>Object: ${intersectedObject.userData.fileName}`);
                 zoomIn(intersectedObject);
-            } else {
-                updateDebugOverlay('Double Click<br>No Object Intersected');
             }
         }
     } catch (error) {
-        updateDebugOverlay(`${error}`);
+        console.error(`Error in handleDoubleClick: ${error}`);
     }
 }
 
-function createArrowHelper(direction, color, length = 50) {
-    const arrow = new THREE.ArrowHelper(
-        direction.normalize(),
-        new THREE.Vector3(0, 0, 0),
-        length,
-        color,
-        0.2 * length,
-        0.1 * length
-    );
-    arrow.visible = false;
-    scene.add(arrow);
-    return arrow;
-}
-
 function zoomIn(model) {
-    updateDebugOverlay(`Zooming In<br>Model: ${model.userData.fileName}`);
-    // Store current camera state
     previousCameraState.position.copy(camera.position);
-    previousCameraState.target.copy(controls.target);
 
     isZoomedIn = true;
     zoomedModel = model;
     hoverTooltip.style.display = 'none';
 
     showBlogPost(model, 2000);
-    const physicsBody = zoomedModel.userData.physicsBody;
-    physicsBody.velocity.set(0, 0, 0);
-    physicsBody.angularVelocity.set(0, 0, 0);
 
-    // Calculate the bounding sphere of the model
     const boundingSphere = new THREE.Sphere();
     model.geometry.computeBoundingSphere();
     boundingSphere.copy(model.geometry.boundingSphere);
     boundingSphere.applyMatrix4(model.matrixWorld);
 
-    const direction = camera.position.clone().sub(controls.target).normalize();
+    const direction = camera.position.clone().sub(model.position).normalize();
     const distance = boundingSphere.radius * 2.5;
-    const newCameraPosition = boundingSphere.center.clone().add(direction.multiplyScalar(distance));
+    const newCameraPosition = model.position.clone().add(direction.multiplyScalar(distance));
 
-    // Prepare objects for fading
     fadeOutObjects = loadedModels.filter(obj => obj !== model);
     fadeInObjects = [model];
 
-    // Start fading out objects
     fadeObjects(fadeOutObjects, 1, 0);
-    fadeObjects(sphereWireframes, .1, 0)
-    fadeObjects(worldObjects, .05, 0);
+    fadeObjects(sphereWireframes, .1, 0);
 
-    // Animate camera movement
-    animateCamera(newCameraPosition, boundingSphere.center, 2000, () => {
-        // After animation, update controls
-        controls.target.copy(boundingSphere.center);
-        controls.update();
-    });
+    animateCamera(newCameraPosition, model.position, 2000, () => {});
 }
 
 function zoomOut() {
-    updateDebugOverlay('Zooming Out');
     fadeInObjects = loadedModels.filter(obj => obj !== zoomedModel);
     isZoomedIn = false;
     zoomedModel = null;
 
     hideBlogPost();
 
-    // Start fading in objects
     fadeObjects(fadeInObjects, 0, 1);
-    fadeObjects(sphereWireframes, 0, .1)
-    fadeObjects(worldObjects, 0, .05);
+    fadeObjects(sphereWireframes, 0, .1);
 
-    // Animate camera movement back to previous position
-    animateCamera(previousCameraState.position, previousCameraState.target, 2000, () => {
-        // After animation, update controls
-        controls.target.copy(previousCameraState.target);
-        controls.update();
-    });
+    animateCamera(previousCameraState.position, new THREE.Vector3(0, 0, 0), 2000, () => {});
 }
 
 function fadeObjects(objects, startOpacity, endOpacity) {
@@ -863,7 +573,6 @@ function fadeObjects(objects, startOpacity, endOpacity) {
         if (progress < 1) {
             requestAnimationFrame(updateFade);
         } else {
-            // If fading out, hide the objects completely
             if (endOpacity === 0) {
                 objects.forEach(obj => {
                     obj.visible = false;
@@ -877,7 +586,6 @@ function fadeObjects(objects, startOpacity, endOpacity) {
         }
     }
 
-    // If fading in, make sure objects are visible
     if (endOpacity > 0) {
         objects.forEach(obj => {
             obj.visible = true;
@@ -907,7 +615,6 @@ function animateCamera(targetPosition, targetLookAt, duration, callback) {
 
     let targetWidth, targetHeight;
 
-    console.log(isBlogPostVisible)
     if (isNarrowScreen) {
         targetWidth = window.innerWidth;
         targetHeight = isBlogPostVisible ? window.innerHeight - parseFloat(blogPostOverlayStyleHeight) : window.innerHeight;
@@ -916,53 +623,39 @@ function animateCamera(targetPosition, targetLookAt, duration, callback) {
         targetHeight = window.innerHeight;
     }
 
-    console.log(targetWidth, targetHeight)
-
-    // Get starting values
     const startWidth = renderer.domElement.width;
     const startHeight = renderer.domElement.height;
     const startPosition = camera.position.clone();
-    const startLookAt = controls.target.clone();
     const startTime = performance.now();
 
     function updateCamera(time) {
         const elapsed = time - startTime;
         const progress = Math.min(elapsed / duration, 1);
 
-        // Use an easing function for smooth animation
         const easeProgress = easeInOutCubic(progress);
 
-        // Interpolate renderer size
         const currentWidth = startWidth + (targetWidth - startWidth) * easeProgress;
         const currentHeight = startHeight + (targetHeight - startHeight) * easeProgress;
         
-        // Update renderer size
         renderer.setSize(currentWidth, currentHeight);
         renderer.render(scene, camera);
         
-        // Update camera aspect ratio
         camera.aspect = currentWidth / currentHeight;
         camera.updateProjectionMatrix();
 
-        // Update camera position and look-at
         camera.position.lerpVectors(startPosition, targetPosition, easeProgress);
-        controls.target.lerpVectors(startLookAt, targetLookAt, easeProgress);
+        camera.lookAt(targetLookAt);
 
-        // Rotate zoomed model if it exists
         if (zoomedModel) {
             const startQuaternion = zoomedModel.quaternion.clone();
             const targetQuaternion = new THREE.Quaternion();
             targetQuaternion.setFromAxisAngle(new THREE.Vector3(-1, 0, 0), Math.PI / 2);
             zoomedModel.quaternion.slerpQuaternions(startQuaternion, targetQuaternion, easeProgress);
-            zoomedModel.userData.physicsBody.quaternion.copy(zoomedModel.quaternion);
         }
-        
-        controls.update();
 
         if (progress < 1) {
             requestAnimationFrame(updateCamera);
         } else {
-            // Ensure final state is set
             renderer.setSize(targetWidth, targetHeight);
             if (callback) {
                 callback();
@@ -986,22 +679,20 @@ function createBoundingSphere(geometry, scale) {
     const sphereWireframe = new THREE.LineSegments(wireframe);
     sphereWireframe.material = new THREE.LineBasicMaterial({
         color: 0x4a5568,
-        linewidth: 1,  // Set to 1 for thinnest possible line
+        linewidth: 1,
         opacity: .1,
         transparent: true
     });
     sphereWireframe.visible = !isZoomedIn;
 
-    const cannonShape = new CANNON.Sphere(radius);
-
-    return { visual: sphereWireframe, physical: cannonShape, radius: radius };
+    return { visual: sphereWireframe, physical: null, radius: radius };
 }
 
 function queueModelLoad(file, index, count = 1, i = 0) {
     setTimeout(() => {
         modelLoadQueue.push({ file, index, count, i });
         processModelQueue();
-    }, index * 1000); // Adjust this delay as needed
+    }, index * 1000);
 }
 
 function processModelQueue() {
@@ -1013,12 +704,12 @@ function processModelQueue() {
     loadSTLModel(file, index, count, i)
         .then(() => {
             isLoadingModel = false;
-            processModelQueue(); // Process next item in queue
+            processModelQueue();
         })
         .catch(error => {
             console.error(`Error loading model ${file.name}:`, error);
             isLoadingModel = false;
-            processModelQueue(); // Continue to next item even if there's an error
+            processModelQueue();
         });
 }
 
@@ -1028,9 +719,6 @@ function loadSTLModel(file, index, count = 1, i = 0) {
         loader.load(
             file.url,
             (geometry) => {
-                const geometryLoadTime = performance.now() - startTime;
-                //updateDebugOverlay(`Geometry loaded: ${file.name} (${geometryLoadTime.toFixed(2)}ms)`);
-
                 const material = new THREE.MeshPhongMaterial({ 
                     color: new THREE.Color(getRandomColor()),
                     specular: 0x111111, 
@@ -1039,72 +727,64 @@ function loadSTLModel(file, index, count = 1, i = 0) {
 
                 const mesh = new THREE.Mesh(geometry, material);
                 mesh.userData.fileName = file.name;
-                mesh.userData.scadContent = file.scadContent
+                mesh.userData.scadContent = file.scadContent;
                 mesh.visible = !isZoomedIn;
 
-                const geometryProcessStart = performance.now();
                 geometry.center();
-                mesh.rotation.x = -Math.PI / 2;
-                const geometryProcessTime = performance.now() - geometryProcessStart;
-                //updateDebugOverlay(`Geometry processed (${geometryProcessTime.toFixed(2)}ms)`);
+                geometry.computeBoundingBox();
+                const bbox = geometry.boundingBox;
+                const size = new THREE.Vector3();
+                bbox.getSize(size);
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = MODEL_SIZE / maxDim;
+                mesh.scale.setScalar(scale);
+                
+                mesh.rotation.x = Math.PI / 4;
+                mesh.rotation.y = Math.PI / 4;
 
-                const boundingSphereStart = performance.now();
-                const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, 1);
-                sphereWireframe.position.copy(mesh.position);
+                const { visual: sphereWireframe, physical: shape, radius } = createBoundingSphere(geometry, scale);
                 sphereWireframe.rotation.copy(mesh.rotation);
                 sphereWireframe.material.color.setHex(0x4a5568);
-                scene.add(sphereWireframe);
                 sphereWireframes.push(sphereWireframe);
-                const boundingSphere = new THREE.Sphere(mesh.position.clone(), radius);
-                boundingSpheres.push({ sphere: boundingSphere, model: mesh });
-                const boundingSphereTime = performance.now() - boundingSphereStart;
-                //updateDebugOverlay(`Bounding sphere created (${boundingSphereTime.toFixed(2)}ms)`);
 
-                const physicsStart = performance.now();
-                const spawnHeight = 500 + (index * count + i) * 10;
-                const offsetRange = 20;
-                const offsetX = (Math.random() - 0.5) * offsetRange * count;
-                const offsetZ = (Math.random() - 0.5) * offsetRange * count;
+                const totalModels = totalModelsToLoad * count;
+                gridSize = Math.ceil(Math.sqrt(totalModels));
+                const spacing = MODEL_SIZE * 1.5;
+                const currentIndex = index * count + i;
+                const row = Math.floor(currentIndex / gridSize);
+                const col = currentIndex % gridSize;
                 
-                const body = new CANNON.Body({
-                    mass: 1,
-                    shape: shape,
-                    position: new CANNON.Vec3(offsetX, spawnHeight, offsetZ),
-                    linearDamping: 0.5,
-                    angularDamping: 0.5,
-                });
+                const gridOffsetX = -(gridSize - 1) * spacing / 2;
+                
+                const posX = gridOffsetX + col * spacing;
+                // Start from top of screen, going downwards (negative Y)
+                const posY = -(row * spacing);
+                const posZ = 0;
+                
+                mesh.position.set(posX, posY, posZ);
+                sphereWireframe.position.set(posX, posY, posZ);
+                sphereWireframe.scale.setScalar(scale);
+                scene.add(sphereWireframe);
+                
+                const boundingSphere = new THREE.Sphere(mesh.position.clone(), radius * scale);
+                boundingSpheres.push({ sphere: boundingSphere, model: mesh });
 
-                const initialVelocity = new CANNON.Vec3(
-                    (Math.random() - 0.5) * 10,
-                    0,
-                    (Math.random() - 0.5) * 10
-                );
-                body.velocity.copy(initialVelocity);
-
-                body.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-                world.addBody(body);
-                sphereWireframe.userData.physicsBody = body;
-                mesh.userData.physicsBody = body;
-                const physicsTime = performance.now() - physicsStart;
-                //updateDebugOverlay(`Physics body created (${physicsTime.toFixed(2)}ms)`);
-
-                const sceneAddStart = performance.now();
                 scene.add(mesh);
                 loadedModels.push(mesh);
-                const sceneAddTime = performance.now() - sceneAddStart;
-                //updateDebugOverlay(`Model added to scene (${sceneAddTime.toFixed(2)}ms)`);
 
                 loadedModelCount++;
-                const totalTime = performance.now() - startTime;
-                //updateDebugOverlay(`Model ${file.name} fully loaded (${totalTime.toFixed(2)}ms)`);
+                
+                if (loadedModelCount === 1) {
+                    positionCamera();
+                }
+                
                 resolve();
             },
             (xhr) => {
                 const progress = xhr.loaded / xhr.total * 100;
-                //updateDebugOverlay(`${file.name} ${progress.toFixed(2)}% loaded`);
             },
             (error) => {
-                updateDebugOverlay(`Error loading ${file.name}: ${error}`);
+                console.error(`Error loading ${file.name}: ${error}`);
                 loadedModelCount++;
                 reject(error);
             }
@@ -1114,72 +794,37 @@ function loadSTLModel(file, index, count = 1, i = 0) {
 
 function animate() {
     requestAnimationFrame(animate);
-    
-    try {
-        world.step(1 / 60);
-    } catch (error) {
-        console.error('Error in physics simulation step:', error);
-    }
-
-    // Check if camera is moving
-    if (!camera.position.equals(lastCameraPosition) || !camera.quaternion.equals(lastCameraQuaternion)) {
-        isCameraMoving = true;
-        hoverTooltip.style.display = 'none';
-    } else {
-        isCameraMoving = false;
-    }
-
-    // Update last camera position and quaternion
-    lastCameraPosition.copy(camera.position);
-    lastCameraQuaternion.copy(camera.quaternion);
-
-    for (let i = 0; i < loadedModels.length; i++) {
-        const mesh = loadedModels[i];
-        if (mesh && mesh.userData && mesh != zoomedModel) {
-            const physicsBody = mesh.userData.physicsBody;
-            mesh.position.copy(physicsBody.position);
-            mesh.quaternion.copy(physicsBody.quaternion);
-            
-            // Update sphere wireframe position
-            if (sphereWireframes[i]) {
-                sphereWireframes[i].position.copy(physicsBody.position);
-                sphereWireframes[i].quaternion.copy(physicsBody.quaternion);
-            }
-
-            if (boundingSpheres[i]) {
-                boundingSpheres[i].sphere.center.copy(physicsBody.position);
-            }
-        }
-    }
-
-    controls.update();
 
     updateHover();
-
     renderer.render(scene, camera);
 }
 
 function handleResize() {
     const container = document.getElementById('stl-viewer');
-    camera.aspect = container.clientWidth / container.clientHeight;
+    const viewportWidth = container.clientWidth;
+    const viewportHeight = container.clientHeight;
+    
+    camera.left = viewportWidth / -2;
+    camera.right = viewportWidth / 2;
+    camera.top = viewportHeight / 2;
+    camera.bottom = viewportHeight / -2;
+    
     camera.updateProjectionMatrix();
     renderer.setSize(container.clientWidth, container.clientHeight);
+    
+    // Reposition camera for new viewport size
+    positionCamera();
 }
 
 async function initGallery() {
     try {
-        updateDebugOverlay('Fetching files from GitHub...');
         const startTime = performance.now();
         const files = await fetchAllFiles(owner, repo);
         const fetchTime = performance.now() - startTime;
-        updateDebugOverlay(`Fetched ${files.length} files in ${fetchTime.toFixed(2)}ms`);
-        console.log('Fetched files:', files);
+        console.log(`Fetched ${files.length} files in ${fetchTime.toFixed(2)}ms`);
 
         const container = document.getElementById('stl-viewer');
-
         hoverTooltip = document.getElementById('hoverTooltip');
-
-        //createDebugOverlay();
 
         initScene(container);
 
@@ -1193,13 +838,10 @@ async function initGallery() {
             });
         }
 
-        renderer.domElement.addEventListener('touchstart', onTouchStart, false);
         renderer.domElement.addEventListener('dblclick', handleDoubleClick, false);
-        renderer.domElement.addEventListener('mousedown', handleStart, false);
         renderer.domElement.addEventListener('mousemove', handleMove, false);
-        renderer.domElement.addEventListener('mouseup', handleEnd, false);
-        renderer.domElement.addEventListener('mouseleave', handleEnd, false);
         renderer.domElement.addEventListener('mouseout', onMouseOut);
+        renderer.domElement.addEventListener('wheel', handleScroll, { passive: false });
 
         window.addEventListener('resize', handleResize);
     } catch (error) {

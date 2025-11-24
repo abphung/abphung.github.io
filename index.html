@@ -1,74 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-S55N5X8XV6"></script>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StlVerse</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-
-      gtag('config', 'G-S55N5X8XV6');
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            colors: {
+              glass: 'rgba(255, 255, 255, 0.05)',
+              glassBorder: 'rgba(255, 255, 255, 0.1)',
+            }
+          }
+        }
+      }
     </script>
-    <link rel="shortcut icon" href="#">
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Andrew Phung</title>
     <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            font-family: Arial, sans-serif;
-            background-color: #f0f4f8;
-        }
-        #container {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-        }
-        #gallery {
-            flex-grow: 1;
-            display: flex;
-            overflow: hidden;
-        }
-        .stl-viewer {
-            flex-grow: 1;
-            position: relative;
-        }
-        #hoverTooltip {
-            display: none;
-            position: fixed; /* Changed from absolute to fixed */
-            background-color: rgba(0,0,0,0.7);
-            color: white;
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 14px;
-            z-index: 1000; /* Ensure it's above other elements */
-            pointer-events: none; /* Prevent the tooltip from interfering with mouse events */
-        }
+      body { margin: 0; overflow: hidden; background-color: #050505; color: white; }
+      /* Hide scrollbar for clean UI */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #000;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #333;
+        border-radius: 3px;
+      }
     </style>
-</head>
-<body>
-    <antArtifact identifier="pat-input-html" type="text/html">
-    <div id="pat-input-container" style="display: none; margin: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-      <p>GitHub API rate limit reached. Please provide a Personal Access Token (PAT) to continue.</p>
-      <p>You can create a PAT at <a href="https://github.com/settings/tokens" target="_blank">https://github.com/settings/tokens</a></p>
-      <p>(No additional scopes are needed for public repositories)</p>
-      <input type="text" id="pat-input" placeholder="Enter your PAT here" style="width: 100%; padding: 5px; margin-bottom: 10px;">
-      <button id="pat-submit">Submit</button>
-    </div>
-    <div id="container">
-        <div id="hoverTooltip" style="display: none; position: absolute; background-color: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 5px; font-size: 14px;"></div>
-        <div id="gallery">
-            <div class="stl-viewer" id="stl-viewer"></div>
-        </div>
-    </div>
 
-    <script type="module" src="script.js">
-        
-    </script>
+<link rel="stylesheet" href="/index.css">
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "three": "https://aistudiocdn.com/three@^0.181.2",
+    "three/": "https://aistudiocdn.com/three@^0.181.2/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/assets/index--l5ECzp-.js"></script>
+</head>
+  <body>
+    <div id="root"></div>
 </body>
 </html>
