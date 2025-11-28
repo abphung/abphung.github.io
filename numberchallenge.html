@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Number Challenge</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        #result {
+            margin-top: 20px;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Random Number Challenge</h1>
+    <button id="startButton">Start</button>
+    <button id="replayButton" disabled>Replay Audio</button>
+    <p id="prompt"></p>
+    <input type="text" id="userInput" placeholder="Enter the number" disabled>
+    <p id="result"></p>
+    <h2>Statistics</h2>
+    <div id="stats"></div>
+
+    <script>
+        let randomNumber;
+        let startTime;
+        const storageKey = "attemptTimes";
+
+        const startButton = document.getElementById('startButton');
+        const replayButton = document.getElementById('replayButton');
+        const userInput = document.getElementById('userInput');
+        const resultDisplay = document.getElementById('result');
+        const statsDisplay = document.getElementById('stats');
+
+        function playNumber(number) {
+            fetch(`https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&q=${number}&tl=vi`)
+                .then(response => response.arrayBuffer())
+                .then(data => {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    audioContext.decodeAudioData(data, buffer => {
+                        const source = audioContext.createBufferSource();
+                        source.buffer = buffer;
+                        source.connect(audioContext.destination);
+                        source.start();
+                    });
+                })
+                .catch(error => {
+                    console.error("Error loading audio:", error);
+                });
+        }
+
+        function saveAttempt(timeTaken, number) {
+            const today = new Date().toISOString().split("T")[0]; // Current date (YYYY-MM-DD)
+            const attempts = JSON.parse(localStorage.getItem(storageKey)) || {};
+            if (!attempts[today]) {
+                attempts[today] = [];
+            }
+            attempts[today].push({ time: timeTaken, number });
+            localStorage.setItem(storageKey, JSON.stringify(attempts));
+        }
+
+        function calculateStatistics() {
+            const attempts = JSON.parse(localStorage.getItem(storageKey)) || {};
+            const today = new Date().toISOString().split("T")[0];
+            const todayAttempts = attempts[today] || [];
+            if (todayAttempts.length === 0) {
+                statsDisplay.textContent = "No attempts yet today.";
+                return;
+            }
+
+            // Calculate average time
+            const totalTime = todayAttempts.reduce((sum, attempt) => sum + attempt.time, 0);
+            const averageTime = (totalTime / todayAttempts.length).toFixed(2);
+
+            // Calculate average time per digit
+            const digitTimes = {};
+            todayAttempts.forEach(attempt => {
+                const digits = attempt.number.toString().split("");
+                const numDigits = digits.length;
+                const timePerDigit = attempt.time / numDigits; // Divide time by the number of digits
+
+                digits.forEach(digit => {
+                    if (!digitTimes[digit]) digitTimes[digit] = { total: 0, count: 0 };
+                    digitTimes[digit].total += timePerDigit;
+                    digitTimes[digit].count += 1;
+                });
+            });
+
+            const digitStats = Object.entries(digitTimes)
+                .map(([digit, { total, count }]) => `Digit ${digit}: ${(total / count).toFixed(2)} seconds per digit`)
+                .join("<br>");
+
+            statsDisplay.innerHTML = `
+                <p>Today's Average Time: ${averageTime} seconds</p>
+                <p>Average Time by Digit:</p>
+                <p>${digitStats}</p>
+            `;
+        }
+
+        function startNewChallenge() {
+            randomNumber = Math.floor(Math.random() * 10000); // Random number between 0 and 10,000
+            playNumber(randomNumber);
+            startTime = Date.now();
+            userInput.value = '';
+            userInput.disabled = false;
+            replayButton.disabled = false;
+            userInput.focus();
+            resultDisplay.textContent = '';
+        }
+
+        startButton.addEventListener('click', startNewChallenge);
+
+        replayButton.addEventListener('click', () => {
+            playNumber(randomNumber);
+        });
+
+        userInput.addEventListener('input', () => {
+            if (parseInt(userInput.value, 10) === randomNumber) {
+                const endTime = Date.now();
+                const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
+                resultDisplay.textContent = `Correct! You took ${timeTaken} seconds.`;
+                userInput.disabled = true;
+
+                saveAttempt(parseFloat(timeTaken), randomNumber);
+                calculateStatistics();
+
+                // Automatically select the start button
+                startButton.focus();
+            }
+        });
+
+        userInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && parseInt(userInput.value, 10) === randomNumber) {
+                startNewChallenge(); // Start a new challenge only if the current number is correct
+            }
+        });
+
+        // Initialize statistics on page load
+        calculateStatistics();
+    </script>
+</body>
+</html>

@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Climb CSV → Stacked Horizontal Bar Animation</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    :root{--bg:#f7fafc;--card:#fff;--muted:#666}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg)}
+    .wrap{max-width:1100px;margin:20px auto;padding:18px}
+    h1{margin:0 0 10px;font-size:20px}
+    .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+    .card{width:100%;background:var(--card);padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+    input[type=file]{display:inline-block}
+    label.small{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+    #chartWrap{height:640px;display:flex;align-items:center;justify-content:center;}
+
+    button{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer;font-size:16px;display:flex;align-items:center;gap:6px;}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    select{padding:8px 10px;border-radius:6px;border:1px solid rgba(0,0,0,0.06);background:#fff;cursor:pointer;font-size:13px}
+    a.downloadLink{font-weight:600;color:#0b5ff0}
+    #status{margin-top:10px;color:#222;min-height:20px}
+    .spinner{display:inline-block;width:16px;height:16px;border:2px solid #f3f3f3;border-top:2px solid #3498db;border-radius:50%;animation:spin 1s linear infinite;margin-right:8px}
+    @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+    #frameSlider{flex:1;min-width:100px}
+    #frameDisplay{white-space:nowrap}
+    .data-table{max-height:300px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px}
+    .data-table table{width:100%;border-collapse:collapse;font-size:13px}
+    .data-table th,.data-table td{padding:8px 12px;text-align:left;border-bottom:1px solid #e2e8f0}
+    .data-table th{background:#f8fafc;font-weight:600;position:sticky;top:0;z-index:1}
+    .data-table tbody tr:hover{background:#f8fafc}
+    
+    /* Settings Menu Styles */
+    .settings-container {
+      position: relative;
+    }
+    
+    .settings-btn {
+      padding: 8px 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #475569;
+      transition: all 0.2s;
+    }
+    
+    .settings-btn:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+    
+    .settings-menu {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      padding: 12px;
+      min-width: 200px;
+      z-index: 1000;
+      display: none;
+    }
+    
+    .settings-menu.show {
+      display: block;
+    }
+    
+    .settings-label {
+      font-size: 13px;
+      color: #374151;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    
+    .settings-select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+      background: white;
+    }
+    
+    .gym-filters {
+      margin-top: 16px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 12px;
+    }
+    
+    .gym-filter-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .gym-filter-item input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+    }
+    
+    .gym-filter-item label {
+      font-size: 13px;
+      color: #374151;
+      cursor: pointer;
+      flex: 1;
+    }
+    
+    .gym-filter-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    
+    .gym-filter-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      border: 1px solid #d1d5db;
+      border-radius: 3px;
+      background: #f9fafb;
+      cursor: pointer;
+      color: #374151;
+    }
+    
+    .gym-filter-btn:hover {
+      background: #f3f4f6;
+    }
+    
+    @media (max-width:720px){ 
+      #chartWrap{height:520px}
+      .settings-menu {
+        right: -20px;
+        left: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Climb CSV → Stacked Horizontal Bar Animation</h1>
+
+    <div id="fileControls" class="controls card">
+      <input id="csvFile" type="file" accept=".csv" />
+    </div>
+
+    <div id="chartWrap" class="card" style="display:none;margin-bottom:20px;">
+      <canvas id="barChart"></canvas>
+    </div>
+
+    <div id="playbackControls" class="controls card" style="display:none;">
+      <button id="playPauseBtn">▶️</button>
+      <label class="small"><span id="frameDisplay">0/0</span><input id="frameSlider" type="range" min="0" max="0" value="0"/> </label>
+      
+      <div class="settings-container">
+        <button class="settings-btn" id="settingsBtn">
+          ⚙️
+        </button>
+        <div class="settings-menu" id="settingsMenu">
+          <!-- Y-Axis Column Selection -->
+          <div style="margin-bottom: 12px;">
+            <div class="settings-label">Y-Axis &amp; Aggregation</div>
+            <select id="yAxisSelect" class="settings-select">
+              <option value="grade" selected>Grade</option>
+              <option value="attempts">Attempts</option>
+            </select>
+          </div>
+        
+          <div class="settings-label">Aggregation Method</div>
+          <select id="aggregationSelect" class="settings-select">
+            <option value="average">Average</option>
+            <option value="median">Median</option>
+            <option value="rolling7d" selected>7 Day Moving Avg</option>
+            <option value="rolling1m">1 Month Moving Avg</option>
+            <option value="rolling3m">3 Month Moving Avg</option>
+          </select>
+          
+          <div class="gym-filters">
+            <div class="settings-label">Gym Filter</div>
+            <div id="gymFilterContainer">
+              <!-- Gym checkboxes will be populated here -->
+            </div>
+            <div class="gym-filter-actions">
+              <button class="gym-filter-btn" id="selectAllGyms">Select All</button>
+              <button class="gym-filter-btn" id="deselectAllGyms">Deselect All</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="aggregationDataWrap" class="card" style="display:none;margin-bottom:20px;">
+      <h3 style="margin:0 0 15px;font-size:16px;" id="dataTableTitle">Aggregation Data Points</h3>
+      <div class="data-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Grade</th> <!-- This header will be updated dynamically -->
+              <th>Color</th>
+              <th>Gym</th>
+            </tr>
+          </thead>
+          <tbody id="dataTableBody">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="status" class="card" style="margin-top:12px;padding:10px;">
+      <div id="statusText">Choose a CSV file with `grade` and `color` columns. Optional `date`, `gym`, and `attempts` columns are supported.</div>
+    </div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+  <script>
+  // --- Helpers & UI refs ---
+  const $ = s => document.querySelector(s);
+  const statusText = $('#statusText');
+  const csvFileInput = $('#csvFile');
+  const playPauseBtn = $('#playPauseBtn');
+  const frameSlider = $('#frameSlider');
+  const frameDisplay = $('#frameDisplay');
+  const aggregationSelect = $('#aggregationSelect');
+  const yAxisSelect = $('#yAxisSelect');
+  const settingsBtn = $('#settingsBtn');
+  const settingsMenu = $('#settingsMenu');
+  const gymFilterContainer = $('#gymFilterContainer');
+  const selectAllGymsBtn = $('#selectAllGyms');
+  const deselectAllGymsBtn = $('#deselectAllGyms');
+  const canvas = document.getElementById('barChart');
+  const chartWrap = $('#chartWrap');
+  const playbackControls = $('#playbackControls');
+  const fileControls = $('#fileControls');
+  const aggregationDataWrap = $('#aggregationDataWrap');
+  const dataTableBody = $('#dataTableBody');
+  const dataTableTitle = $('#dataTableTitle');
+
+  // --- Internal state ---
+  let rawRows = [];
+  let yAxisValues = []; // Replaces 'grades'. Can be grades, attempts, etc.
+  let colors = [];
+  let gyms = [];
+  let selectedGyms = new Set();
+  let frames = []; // each frame: {datasets: [array per color of values-per-grade], label, date, rawData}
+  let chart = null;
+  let playTimer = null;
+  let currentFrame = 0;
+  let isPlaying = false;
+  let yAxisColumn = 'grade'; // Default y-axis column
+
+  // --- Settings Menu Toggle ---
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsMenu.classList.toggle('show');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!settingsBtn.contains(e.target) && !settingsMenu.contains(e.target)) {
+      settingsMenu.classList.remove('show');
+    }
+  });
+
+  // --- Gym Filter Controls ---
+  selectAllGymsBtn.addEventListener('click', () => {
+    gymFilterContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.checked = true;
+      selectedGyms.add(cb.value);
+    });
+    rebuildFramesWithFilter();
+    restartAnimation();
+  });
+
+  deselectAllGymsBtn.addEventListener('click', () => {
+    gymFilterContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.checked = false;
+      selectedGyms.delete(cb.value);
+    });
+    rebuildFramesWithFilter();
+    restartAnimation();
+  });
+
+  function createGymFilterCheckboxes() {
+    gymFilterContainer.innerHTML = '';
+    gyms.forEach(gym => {
+      const div = document.createElement('div');
+      div.className = 'gym-filter-item';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `gym-${gym}`;
+      checkbox.value = gym;
+      checkbox.checked = selectedGyms.has(gym);
+      
+      checkbox.addEventListener('change', (e) => {
+        if (e.target.checked) selectedGyms.add(gym);
+        else selectedGyms.delete(gym);
+        rebuildFramesWithFilter();
+        restartAnimation();
+      });
+      
+      const label = document.createElement('label');
+      label.htmlFor = `gym-${gym}`;
+      label.textContent = gym || 'Unknown';
+      
+      div.appendChild(checkbox);
+      div.appendChild(label);
+      gymFilterContainer.appendChild(div);
+    });
+  }
+
+  function rebuildFramesWithFilter() {
+    if (rawRows.length === 0) return;
+    
+    const filteredRows = rawRows.filter(row => {
+      const gymKey = Object.keys(row).find(k => k.toLowerCase() === 'gym');
+      const gym = gymKey ? normalizeName(row[gymKey]) : 'Unknown';
+      return selectedGyms.has(gym);
+    });
+    
+    if (filteredRows.length === 0) {
+      frames = [];
+      if (chart) {
+        chart.data.datasets.forEach(dataset => dataset.data = Array(yAxisValues.length).fill(0));
+        updateAverageValueLine(0);
+        chart.update();
+      }
+      frameSlider.max = 0;
+      frameDisplay.textContent = '0/0';
+      updateDataTable(0);
+      return;
+    }
+    
+    prepareFramesFromRows(filteredRows);
+    
+    frameSlider.max = frames.length - 1;
+    frameDisplay.textContent = `1/${frames.length}`;
+    currentFrame = 0;
+    
+    if (frames.length > 0) showFrame(0);
+    
+    if (playTimer) {
+      clearInterval(playTimer);
+      playTimer = null;
+      isPlaying = false;
+      playPauseBtn.textContent = '▶️';
+    }
+  }
+
+  function restartAnimation() {
+    currentFrame = 0;
+    frameSlider.value = 0;
+    frameDisplay.textContent = frames.length > 0 ? `1/${frames.length}` : '0/0';
+    
+    if (frames.length > 0) showFrame(0);
+    
+    if (frames.length > 0) {
+      setTimeout(() => { if (!isPlaying) playPauseBtn.click(); }, 300);
+    }
+  }
+
+  // --- Color mapping ---
+  const colorMap = {
+    Pink:"#ffc0cb", Black:"#000000", Orange:"#ffa500", Purple:"#800080", White:"#ffffff",
+    Blue:"#1f77b4", Red:"#d62728", Yellow:"#ffdd57", Green:"#2ca02c", Gray:"#808080",
+    Grey:"#808080", Brown:"#8b4513", Tan:"#d2b48c", Gold:"#d4af37", Silver:"#c0c0c0",
+    Teal:"#008080", Lime:"#32cd32", Cyan:"#00bcd4", Magenta:"#ff00ff", Beige:"#f5f5dc"
+  };
+
+  function normalizeName(s){
+    return s === undefined || s === null ? '' : String(s).trim();
+  }
+
+  function getColorHex(name){
+    const clean = normalizeName(name);
+    if(!clean) return '#cccccc';
+    const key = Object.keys(colorMap).find(k => k.toLowerCase() === clean.toLowerCase());
+    if(key) return colorMap[key];
+    let hash = 0;
+    for(let i=0;i<clean.length;i++){ hash = clean.charCodeAt(i) + ((hash<<5)-hash); hash &= hash; }
+    return `hsl(${(hash % 360 + 360) % 360} 60% 55%)`;
+  }
+
+  // Parses values like "v6", "V3", "6", "1", "2" into numbers
+  function valueToNumber(v){
+    if(v === undefined || v === null) return Number.MAX_SAFE_INTEGER;
+    const s = String(v).trim();
+    const m = s.match(/(?:v)?\s*([+-]?\d+)/i);
+    if(m) return parseInt(m[1],10);
+    const m2 = s.match(/([0-9]+)/);
+    if(m2) return parseInt(m2[1],10);
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  // --- CSV auto-load on file selection ---
+  csvFileInput.addEventListener('change', () => {
+    const f = csvFileInput.files[0];
+    if(!f) return;
+    
+    statusText.textContent = 'Parsing CSV...';
+    Papa.parse(f, {header:true, skipEmptyLines:true,
+      complete: (res) => {
+        rawRows = res.data;
+        try {
+          prepareFramesFromCSV(rawRows);
+          statusText.textContent = `Loaded ${rawRows.length} rows → ${frames.length} animation frames. Ready.`;
+          
+          fileControls.style.display = 'none';
+          chartWrap.style.display = 'flex';
+          playbackControls.style.display = 'flex';
+          aggregationDataWrap.style.display = 'block';
+          
+          frameSlider.max = frames.length - 1;
+          frameDisplay.textContent = `1/${frames.length}`;
+          currentFrame = 0;
+          showFrame(0);
+          
+          setTimeout(() => { if (!isPlaying) playPauseBtn.click(); }, 500);
+        } catch(e){
+          statusText.textContent = 'Error processing CSV: ' + e.message;
+        }
+      },
+      error: (err) => { statusText.textContent = 'CSV parse error: ' + err.message; }
+    });
+  });
+
+  function prepareFramesFromCSV(rows){
+    if(!rows || !rows.length) throw new Error('CSV is empty.');
+
+    const headerKeys = Object.keys(rows[0]).map(k => k.toLowerCase());
+    if(!headerKeys.includes('grade')) throw new Error('CSV header must include a "grade" column.');
+    
+    // Disable 'attempts' option if the column doesn't exist
+    const attemptsOption = yAxisSelect.querySelector('option[value="attempts"]');
+    if(!headerKeys.includes('attempts')) {
+        if(attemptsOption) attemptsOption.disabled = true;
+    } else {
+        if(attemptsOption) attemptsOption.disabled = false;
+    }
+
+    const gymSet = new Set();
+    rows.forEach(r => {
+      const gymKey = Object.keys(r).find(k => k.toLowerCase() === 'gym');
+      gymSet.add(gymKey ? normalizeName(r[gymKey]) : 'Unknown');
+    });
+    gyms = Array.from(gymSet).sort();
+    
+    selectedGyms = new Set(gyms.filter(gym => gym.toLowerCase().includes('bouldering project')));
+    if (selectedGyms.size === 0) selectedGyms = new Set(gyms); // Select all if none match
+    
+    createGymFilterCheckboxes();
+    rebuildFramesWithFilter();
+  }
+
+  function prepareFramesFromRows(rows) {
+    const normalizedRows = rows.map((r, idx) => {
+      const obj = {};
+      for(const key of Object.keys(r)) obj[key.toLowerCase()] = r[key];
+      
+      let date = obj['date'] ? new Date(obj['date']) : new Date(2024, 0, idx + 1);
+      if (isNaN(date.getTime())) date = new Date(2024, 0, idx + 1);
+      
+      return {
+        grade: normalizeName(obj['grade']),
+        attempts: normalizeName(obj['attempts']),
+        color: normalizeName(obj['color'] ?? 'Unknown'),
+        gym: normalizeName(obj['gym'] ?? 'Unknown'),
+        date: date,
+        originalIndex: idx
+      };
+    });
+
+    // Filter out rows with blank 'attempts' if that's the selected axis
+    const finalRows = yAxisColumn === 'attempts'
+      ? normalizedRows.filter(r => r.attempts && r.attempts.trim() !== '')
+      : normalizedRows;
+
+    const yAxisValueSet = new Set();
+    const colorSet = new Set();
+    finalRows.forEach(r => {
+      const yValue = r[yAxisColumn];
+      if(yValue) yAxisValueSet.add(yValue);
+      else yAxisValueSet.add(`Unknown`);
+      colorSet.add(r.color || 'Unknown');
+    });
+
+    yAxisValues = Array.from(yAxisValueSet).sort((a,b) => valueToNumber(a) - valueToNumber(b));
+    colors = Array.from(colorSet).sort((a,b) => {
+      const priority = ['white', 'pink', 'blue', 'black', 'orange', 'purple', 'green', 'red', 'yellow'];
+      const aIndex = priority.findIndex(p => p.toLowerCase() === a.toLowerCase());
+      const bIndex = priority.findIndex(p => p.toLowerCase() === b.toLowerCase());
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    const counts = {};
+    yAxisValues.forEach(g => {
+      counts[g] = {};
+      colors.forEach(c => counts[g][c] = 0);
+    });
+
+    frames = [];
+    let cumulativeData = [];
+    
+    finalRows.forEach((r, idx) => {
+      const yValue = r[yAxisColumn] || 'Unknown';
+      const c = r.color || 'Unknown';
+
+      cumulativeData.push({
+        ...r,
+        valueNumber: valueToNumber(r[yAxisColumn])
+      });
+
+      if(!(yValue in counts)) {
+          yAxisValues.push(yValue);
+          counts[yValue] = {};
+          colors.forEach(cc => counts[yValue][cc] = 0);
+      }
+      counts[yValue][c] = (counts[yValue][c] || 0) + 1;
+
+      const datasetsPerColor = colors.map(colorName => yAxisValues.map(yAxisVal => counts[yAxisVal][colorName] || 0));
+      frames.push({ 
+        datasets: datasetsPerColor, 
+        label: `Row ${idx+1}`,
+        date: r.date,
+        originalIndex: r.originalIndex,
+        cumulativeData: [...cumulativeData]
+      });
+    });
+
+    createChart();
+  }
+
+  function createChart(){
+    if(chart) chart.destroy();
+    const ctx = canvas.getContext('2d');
+
+    const maxCount = calculateMaxCount();
+    const datasets = colors.map(c => ({
+      label: c,
+      data: Array(yAxisValues.length).fill(0),
+      backgroundColor: getColorHex(c),
+      borderColor: '#222',
+      borderWidth: 0.6,
+      borderRadius: 6
+    }));
+
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: yAxisValues,
+        datasets: datasets
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: true },
+          annotation: { annotations: {} }
+        },
+        scales: {
+          x: { 
+            stacked: true, 
+            beginAtZero: true, 
+            max: maxCount,
+            title: { display: true, text: 'Count' } 
+          },
+          y: { 
+            stacked: true, 
+            title: { 
+              display: true, 
+              text: yAxisColumn.charAt(0).toUpperCase() + yAxisColumn.slice(1) 
+            } 
+          }
+        },
+        animation: { duration: 300, easing: 'linear' }
+      }
+    });
+  }
+
+  function calculateMaxCount() {
+    if (!frames.length) return 100;
+    let maxCount = 0;
+    frames.forEach(frame => {
+      yAxisValues.forEach((val, idx) => {
+        const total = frame.datasets.reduce((sum, colorData) => sum + (colorData[idx] || 0), 0);
+        maxCount = Math.max(maxCount, total);
+      });
+    });
+    return Math.ceil(maxCount * 1.1);
+  }
+
+  function showFrame(i){
+    if(!chart || !frames.length) return;
+    const frame = frames[i];
+    
+    frame.datasets.forEach((vals, datasetIdx) => {
+      if(chart.data.datasets[datasetIdx]) chart.data.datasets[datasetIdx].data = vals.slice();
+    });
+    
+    chart.data.labels = yAxisValues.slice();
+    updateAverageValueLine(i);
+    chart.update();
+    updateDataTable(i);
+  }
+
+  function updateAverageValueLine(frameIndex) {
+    if (!chart || !frames.length) {
+        if(chart) chart.options.plugins.annotation.annotations = {};
+        return;
+    };
+    
+    const result = calculateAggregation(frameIndex, aggregationSelect.value);
+    
+    if (!result) {
+        chart.options.plugins.annotation.annotations = {};
+        return;
+    };
+    
+    let closestIndex = 0;
+    let closestDiff = Infinity;
+    yAxisValues.forEach((val, idx) => {
+      const num = valueToNumber(val);
+      if (num !== Number.MAX_SAFE_INTEGER) {
+        const diff = Math.abs(num - result.value);
+        if (diff < closestDiff) {
+          closestDiff = diff;
+          closestIndex = idx;
+        }
+      }
+    });
+    
+    chart.options.plugins.annotation.annotations = {
+      averageLine: {
+        type: 'line', yMin: closestIndex, yMax: closestIndex,
+        borderColor: '#ff4444', borderWidth: 3, borderDash: [5, 5],
+        label: {
+          display: true, content: result.display, position: 'end',
+          backgroundColor: '#ff4444', color: 'white',
+          font: { size: 12, weight: 'bold' },
+          padding: 6, borderRadius: 4
+        }
+      }
+    };
+  }
+
+  function calculateAggregation(frameIndex, type) {
+    const dataPoints = getAggregationDataPoints(frameIndex, type);
+    if (!dataPoints || dataPoints.length === 0) return null;
+    
+    const values = dataPoints.map(p => p.valueNumber).filter(v => v !== Number.MAX_SAFE_INTEGER);
+    if (values.length === 0) return null;
+    
+    const prefix = yAxisColumn === 'grade' ? 'V' : '';
+
+    switch (type) {
+      case 'average':
+        const avg = values.reduce((s, v) => s + v, 0) / values.length;
+        return { value: avg, display: `Avg: ${prefix}${avg.toFixed(1)}` };
+        
+      case 'median':
+        values.sort((a, b) => a - b);
+        const mid = Math.floor(values.length / 2);
+        const median = values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
+        return { value: median, display: `Median: ${prefix}${median.toFixed(1)}` };
+        
+      case 'rolling7d': case 'rolling1m': case 'rolling3m':
+        const rAvg = values.reduce((s, v) => s + v, 0) / values.length;
+        const period = type === 'rolling7d' ? '7d' : type === 'rolling1m' ? '1M' : '3M';
+        return { value: rAvg, display: `${period} Avg: ${prefix}${rAvg.toFixed(1)}` };
+        
+      default: return null;
+    }
+  }
+
+  function getAggregationDataPoints(frameIndex, type) {
+    const frame = frames[frameIndex];
+    if (!frame) return [];
+    
+    switch (type) {
+      case 'average': case 'median':
+        return frame.cumulativeData;
+      case 'rolling7d': return getRollingDataPoints(frameIndex, 7, 'days');
+      case 'rolling1m': return getRollingDataPoints(frameIndex, 1, 'months');
+      case 'rolling3m': return getRollingDataPoints(frameIndex, 3, 'months');
+      default: return [];
+    }
+  }
+
+  function getRollingDataPoints(frameIndex, period, unit) {
+    const frame = frames[frameIndex];
+    if (!frame || !frame.cumulativeData) return [];
+
+    const currentDate = frame.date;
+    const startDate = new Date(currentDate);
+
+    if (unit === 'days') startDate.setDate(startDate.getDate() - period);
+    else if (unit === 'months') startDate.setMonth(startDate.getMonth() - period);
+
+    return frame.cumulativeData.filter(climb => new Date(climb.date) >= startDate && new Date(climb.date) <= currentDate);
+  }
+
+  function updateDataTable(frameIndex) {
+    const aggregationType = aggregationSelect.value;
+    const dataPoints = getAggregationDataPoints(frameIndex, aggregationType);
+    
+    const typeLabels = {
+      'average': 'Average (All Climbs)', 'median': 'Median (All Climbs)', 
+      'rolling7d': '7-Day Rolling Average', 'rolling1m': '1-Month Rolling Average', 'rolling3m': '3-Month Rolling Average'
+    };
+    dataTableTitle.textContent = `${typeLabels[aggregationType]} - Data Points (${dataPoints ? dataPoints.length : 0} climbs)`;
+    
+    const headerCell = dataTableBody.parentElement.querySelector('thead tr th:nth-child(2)');
+    if (headerCell) headerCell.textContent = yAxisColumn.charAt(0).toUpperCase() + yAxisColumn.slice(1);
+    
+    dataTableBody.innerHTML = '';
+    if (!dataPoints || dataPoints.length === 0) {
+      const row = dataTableBody.insertRow();
+      const cell = row.insertCell();
+      cell.colSpan = 4;
+      cell.textContent = 'No data points in current window';
+      cell.style.cssText = 'text-align:center; font-style:italic; color:#666;';
+      return;
+    }
+    
+    dataPoints.sort((a, b) => b.date - a.date);
+    
+    dataPoints.forEach(point => {
+      const row = dataTableBody.insertRow();
+      row.insertCell().textContent = point.date.toLocaleDateString();
+      row.insertCell().textContent = point[yAxisColumn];
+      const colorCell = row.insertCell();
+      colorCell.textContent = point.color;
+      colorCell.style.cssText = `color:${getColorHex(point.color)}; font-weight:bold;`;
+      const gymCell = row.insertCell();
+      gymCell.textContent = point.gym || 'Unknown';
+      gymCell.style.cssText = 'font-size:12px; color:#6b7280;';
+    });
+  }
+
+  // --- Play / Pause ---
+  playPauseBtn.addEventListener('click', () => {
+    if(!frames.length) return;
+    
+    if (isPlaying) {
+      if(playTimer) clearInterval(playTimer);
+      playTimer = null;
+      isPlaying = false;
+      playPauseBtn.textContent = '▶️';
+    } else {
+      if (currentFrame >= frames.length - 1) currentFrame = 0;
+      isPlaying = true;
+      playPauseBtn.textContent = '⏸️';
+      const speed = Math.max(20, 15000 / frames.length);
+      if(playTimer) clearInterval(playTimer);
+      playTimer = setInterval(() => {
+        showFrame(currentFrame);
+        frameSlider.value = currentFrame;
+        frameDisplay.textContent = `${currentFrame + 1}/${frames.length}`;
+        currentFrame++;
+        
+        if (currentFrame >= frames.length) {
+          currentFrame = frames.length - 1;
+          clearInterval(playTimer);
+          playTimer = null;
+          isPlaying = false;
+          playPauseBtn.textContent = '▶️';
+        }
+      }, speed);
+    }
+  });
+
+  // --- Event Listeners for Settings ---
+  aggregationSelect.addEventListener('change', () => {
+    if (chart && frames.length > 0) {
+      updateAverageValueLine(currentFrame);
+      chart.update();
+      updateDataTable(currentFrame);
+    }
+  });
+
+  yAxisSelect.addEventListener('change', () => {
+    yAxisColumn = yAxisSelect.value;
+    rebuildFramesWithFilter();
+    restartAnimation();
+  });
+
+  frameSlider.addEventListener('input', () => {
+    currentFrame = parseInt(frameSlider.value);
+    showFrame(currentFrame);
+    frameDisplay.textContent = `${currentFrame + 1}/${frames.length}`;
+    if(playTimer) {
+      clearInterval(playTimer);
+      playTimer = null;
+      isPlaying = false;
+      playPauseBtn.textContent = '▶️';
+    }
+  });
+
+  // --- Drag & drop support ---
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    if(e.dataTransfer.files && e.dataTransfer.files.length){
+      csvFileInput.files = e.dataTransfer.files;
+      csvFileInput.dispatchEvent(new Event('change'));
+    }
+  });
+  </script>
+</body>
+</html>
